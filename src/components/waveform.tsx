@@ -72,7 +72,7 @@ export function Waveform({ stream, active, className }: WaveformProps) {
         const barHeight = Math.max(6 * window.devicePixelRatio, value * height * 0.92);
         const x = i * (barWidth + gap);
         const y = (height - barHeight) / 2;
-        context.fillStyle = `oklch(0.82 0.01 260 / ${0.28 + value * 0.7})`;
+        context.fillStyle = `oklch(${0.62 + value * 0.28} ${0.04 + value * 0.04} ${230 + i} / ${0.35 + value * 0.6})`;
         context.beginPath();
         context.roundRect(x, y, barWidth, barHeight, 6 * window.devicePixelRatio);
         context.fill();

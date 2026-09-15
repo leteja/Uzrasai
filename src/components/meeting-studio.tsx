@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { ProtocolDocument } from "@/components/protocol-document";
+import { LiveTranscript } from "@/components/live-transcript";
 import { SetupGuide } from "@/components/setup-guide";
 import { Waveform } from "@/components/waveform";
 import { useAudioRecorder } from "@/hooks/use-audio-recorder";
@@ -154,7 +155,7 @@ export function MeetingStudio() {
   useEffect(() => {
     if (!recorder.isRecording) return;
     liveEndRef.current?.scrollIntoView({ block: "end" });
-  }, [captions.liveText, captions.finalLines, recorder.isRecording]);
+  }, [captions.utterances, captions.interim, recorder.isRecording]);
 
   async function refreshArchive() {
     const response = await fetch("/api/meetings");
@@ -242,7 +243,7 @@ export function MeetingStudio() {
     setError(null);
     captions.reset();
     await recorder.start();
-    captions.start();
+    captions.start(expectedCount);
   }
 
   stopNowRef.current = onToggleRecord;
@@ -320,43 +321,39 @@ export function MeetingStudio() {
     return "Reikia rakto serveryje";
   }, [status]);
 
-  const interimHeard = useMemo(() => {
-    const committed = captions.finalLines.join(" ").trim();
-    if (!captions.liveText) return "";
-    if (committed && captions.liveText.startsWith(committed)) {
-      return captions.liveText.slice(committed.length).trim();
-    }
-    return captions.liveText;
-  }, [captions.finalLines, captions.liveText]);
-
   return (
-    <div className="flex min-h-dvh flex-col">
-      <header className="sticky top-0 z-20 border-b border-border bg-background/85 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-[1600px] items-center justify-between gap-3 px-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <p className="text-[11px] font-medium tracking-[0.2em] text-muted-foreground uppercase">Užrašai</p>
-            <span className="hidden h-4 w-px bg-border sm:block" />
-            <p className="flex items-center gap-1.5 text-sm">
-              <Users className="size-3.5 text-muted-foreground" />
-              <span className="font-medium tabular-nums">{expectedCount}</span>
-              <span className="text-muted-foreground">{peopleWord(expectedCount)} kambaryje</span>
-            </p>
+    <div className="relative flex min-h-dvh flex-col">
+      <div className="studio-grid pointer-events-none absolute inset-0" />
+      <header className="sticky top-0 z-20 border-b border-white/10 bg-[#10141c]/80 backdrop-blur-md">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-sky-300/40 to-transparent" />
+        <div className="mx-auto flex min-h-16 max-w-[1600px] items-center justify-between gap-4 px-4 py-3">
+          <div className="min-w-0">
+            <h1 className="font-wordmark text-[1.65rem] leading-none font-semibold tracking-[0.42em] text-white uppercase sm:text-[1.9rem]">
+              Užrašai
+            </h1>
+            <p className="mt-1 hidden text-[10px] tracking-[0.28em] text-white/40 uppercase sm:block">Susitikimų protokolas</p>
           </div>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <div className="flex items-center gap-4 text-xs text-white/55">
+            <p className="flex items-center gap-1.5 text-sm text-white/80">
+              <Users className="size-3.5 text-sky-300/80" />
+              <span className="font-medium tabular-nums text-white">{expectedCount}</span>
+              <span className="hidden sm:inline">{peopleWord(expectedCount)} kambaryje</span>
+            </p>
+            <span className="hidden h-4 w-px bg-gradient-to-b from-transparent via-white/30 to-transparent sm:block" />
             <span className="hidden items-center gap-1.5 sm:inline-flex">
               {lockBeforeRecord ? <Lock className="size-3.5" /> : <LockOpen className="size-3.5" />}
-              {lockBeforeRecord ? "Po įrašo užrakinti" : "Po įrašo galima taisyti"}
+              {lockBeforeRecord ? "Po įrašo užrakinti" : "Po įrašo taisyti"}
             </span>
             <span className="hidden md:inline">{readyLabel}</span>
-            <span className={cn("font-mono tabular-nums text-sm text-foreground", recorder.isRecording && "text-red-300")}>
+            <span className={cn("font-mono tabular-nums text-sm text-white", recorder.isRecording && "text-red-300")}>
               {formatClock(recorder.elapsedMs)}
             </span>
           </div>
         </div>
       </header>
 
-      <div className="mx-auto grid w-full max-w-[1600px] flex-1 lg:grid-cols-[240px_minmax(0,1fr)_260px]">
-        <aside className="order-2 space-y-6 border-border px-4 py-5 lg:order-1 lg:border-r">
+      <div className="relative z-10 mx-auto grid w-full max-w-[1600px] flex-1 lg:grid-cols-[240px_minmax(0,1fr)_260px]">
+        <aside className="order-2 space-y-6 border-white/10 px-4 py-6 lg:order-1 lg:border-r lg:bg-gradient-to-b lg:from-white/5 lg:to-transparent">
           <section className="space-y-3">
             <div>
               <h2 className="text-sm font-medium">Kambarys</h2>
@@ -481,7 +478,7 @@ export function MeetingStudio() {
           </section>
         </aside>
 
-        <main className="order-1 flex min-w-0 flex-col border-border px-4 py-5 lg:order-2 lg:border-x-0">
+        <main className="order-1 flex min-w-0 flex-col px-4 py-6 lg:order-2">
           <SetupGuide status={status} />
 
           {displayError ? (
@@ -492,109 +489,74 @@ export function MeetingStudio() {
             </Alert>
           ) : null}
 
-          <div className="mb-6 rounded-xl border border-border bg-card p-4">
-            <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-stretch">
-              <button
-                type="button"
-                onClick={() => void onToggleRecord()}
-                disabled={processing || recorder.state === "requesting" || recorder.state === "stopping"}
-                className={cn(
-                  "flex size-20 shrink-0 items-center justify-center rounded-full border text-sm transition disabled:opacity-50",
-                  recorder.isRecording
-                    ? "border-red-400/40 bg-red-500/15 text-red-200 hover:bg-red-500/25"
-                    : "border-border bg-secondary text-foreground hover:bg-muted"
-                )}
-                aria-label={recorder.isRecording ? "Stabdyti įrašą" : "Pradėti įrašą"}
-              >
-                {recorder.state === "requesting" || recorder.state === "stopping" || processing ? (
-                  <Loader2 className="size-7 animate-spin" />
-                ) : recorder.isRecording ? (
-                  <Square className="size-6 fill-current" />
-                ) : (
-                  <Mic className="size-7" />
-                )}
-              </button>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-2 text-sm">
-                  <span className={cn("inline-flex items-center gap-2", recorder.isRecording && "text-red-300")}>
-                    <span className={cn("size-1.5 rounded-full bg-muted-foreground/50", recorder.isRecording && "animate-pulse bg-red-400")} />
-                    {recorder.isRecording ? "Įrašoma" : processing ? PROCESS_STEPS[processStep] : "Laukiama Start"}
-                  </span>
-                  <span className="font-mono tabular-nums">{formatClock(recorder.elapsedMs)}</span>
-                </div>
-                <Waveform stream={recorder.stream} active={recorder.isRecording} />
+          <div className="mb-2 flex flex-col items-center gap-5 sm:flex-row sm:items-center">
+            <button
+              type="button"
+              onClick={() => void onToggleRecord()}
+              disabled={processing || recorder.state === "requesting" || recorder.state === "stopping"}
+              className={cn(
+                "relative flex size-[4.75rem] shrink-0 items-center justify-center rounded-full transition disabled:opacity-50",
+                recorder.isRecording
+                  ? "bg-gradient-to-b from-red-400 to-red-700 text-white shadow-[0_0_40px_-8px_oklch(0.65_0.2_25)]"
+                  : "bg-gradient-to-b from-white to-white/70 text-zinc-900 shadow-[0_0_36px_-10px_oklch(0.85_0.04_250)]"
+              )}
+              aria-label={recorder.isRecording ? "Stabdyti įrašą" : "Pradėti įrašą"}
+            >
+              <span className="pointer-events-none absolute inset-[-6px] rounded-full border border-white/15" />
+              {recorder.state === "requesting" || recorder.state === "stopping" || processing ? (
+                <Loader2 className="size-7 animate-spin" />
+              ) : recorder.isRecording ? (
+                <Square className="size-6 fill-current" />
+              ) : (
+                <Mic className="size-7" />
+              )}
+            </button>
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 flex items-center justify-between gap-2 text-xs tracking-[0.18em] text-white/45 uppercase">
+                <span className={cn("inline-flex items-center gap-2", recorder.isRecording && "text-red-300")}>
+                  <span className={cn("size-1.5 rounded-full bg-white/30", recorder.isRecording && "animate-pulse bg-red-400")} />
+                  {recorder.isRecording ? "Įrašoma gyvai" : processing ? PROCESS_STEPS[processStep] : "Start"}
+                </span>
+                <span className="font-mono tracking-normal text-white/80">{formatClock(recorder.elapsedMs)}</span>
               </div>
+              <Waveform stream={recorder.stream} active={recorder.isRecording} />
             </div>
           </div>
 
-          {recorder.isRecording || captions.liveText ? (
-            <div className="mb-6 grid gap-3 md:grid-cols-2">
-              <section className="flex min-h-56 flex-col rounded-xl border border-border bg-card">
-                <header className="border-b border-border px-3 py-2">
-                  <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Kas girdima</h2>
-                  <p className="text-[11px] text-muted-foreground">Gyvas tekstas iš mikrofono. Gali būti netikslus.</p>
-                </header>
-                <div className="max-h-72 flex-1 overflow-y-auto px-3 py-3 text-sm leading-6">
-                  {!captions.supported && recorder.isRecording ? (
-                    <p className="text-muted-foreground">Ši naršyklė nerodo gyvo teksto. Garso įrašas vis tiek rašomas.</p>
-                  ) : captions.finalLines.length === 0 && !captions.liveText ? (
-                    <p className="text-muted-foreground">Kalba atsiras čia.</p>
-                  ) : (
-                    <>
-                      {captions.finalLines.map((line, index) => (
-                        <p key={`${index}-${line.slice(0, 24)}`} className="mb-2">
-                          {line}
-                        </p>
-                      ))}
-                      <p className="text-muted-foreground">{interimHeard || null}</p>
-                      <div ref={liveEndRef} />
-                    </>
-                  )}
-                </div>
-              </section>
-              <section className="flex min-h-56 flex-col rounded-xl border border-border bg-card">
-                <header className="border-b border-border px-3 py-2">
-                  <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Kas įrašoma</h2>
-                  <p className="text-[11px] text-muted-foreground">Oficialus garso takelis. Tekstas bus po Stop.</p>
-                </header>
-                <div className="flex flex-1 flex-col justify-center gap-3 px-3 py-4">
-                  <Waveform stream={recorder.stream} active={recorder.isRecording} />
-                  <p className="text-sm text-muted-foreground">
-                    {recorder.isRecording
-                      ? `Rašomas garsas · ${formatClock(recorder.elapsedMs)} · mikrofonas įjungtas`
-                      : "Įrašas sustabdytas."}
-                  </p>
-                </div>
-              </section>
-            </div>
-          ) : null}
+          <div className="hairline my-2" />
 
-          {processing ? (
-            <div className="mb-6 flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-3 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              {PROCESS_STEPS[processStep]}
-            </div>
-          ) : null}
+          {recorder.isRecording || captions.utterances.length > 0 || captions.interim ? (
+            <LiveTranscript
+              utterances={captions.utterances}
+              interim={captions.interim}
+              interimSpeaker={captions.interimSpeaker}
+              recording={recorder.isRecording}
+              supported={captions.supported}
+              endRef={liveEndRef}
+            />
+          ) : saved ? null : (
+            <p className="py-10 font-mono text-sm tracking-wide text-white/30">
+              SPEAKER 1
+              <span className="ml-4 font-sans tracking-normal text-white/40">Paspaudę Start čia matysite, kas ką sako.</span>
+            </p>
+          )}
 
           {saved ? (
-            <ProtocolDocument
-              saved={saved}
-              nameOptions={cleanParticipants}
-              copied={copied}
-              onUpdate={persistMeeting}
-              onLock={lockSaved}
-              onCopy={copyRecord}
-            />
-          ) : !processing && !recorder.isRecording ? (
-            <div className="rounded-xl border border-dashed border-border px-4 py-10 text-center">
-              <p className="text-sm text-muted-foreground">
-                Nustatykite, kiek žmonių kambaryje, tada Start. Viduryje matysite, kas girdima ir kad garsas rašomas.
-              </p>
+            <div className="mt-4">
+              <div className="hairline mb-6" />
+              <ProtocolDocument
+                saved={saved}
+                nameOptions={cleanParticipants}
+                copied={copied}
+                onUpdate={persistMeeting}
+                onLock={lockSaved}
+                onCopy={copyRecord}
+              />
             </div>
           ) : null}
         </main>
 
-        <aside className="order-3 space-y-6 border-border px-4 py-5 lg:border-l">
+        <aside className="order-3 space-y-6 border-white/10 px-4 py-6 lg:border-l lg:bg-gradient-to-b lg:from-white/5 lg:to-transparent">
           {saved ? (
             <section className="space-y-2">
               <h2 className="text-sm font-medium">Eksportas</h2>
