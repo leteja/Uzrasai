@@ -323,9 +323,14 @@ export function MeetingStudio() {
 
   return (
     <div className="relative flex min-h-dvh flex-col">
-      <div className="studio-grid pointer-events-none absolute inset-0" />
-      <header className="sticky top-0 z-20 border-b border-white/10 bg-[#10141c]/80 backdrop-blur-md">
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-sky-300/40 to-transparent" />
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -top-36 -left-28 size-[34rem] rounded-full bg-sky-400/30 blur-[110px]" />
+        <div className="absolute -top-24 -right-20 size-[26rem] rounded-full bg-amber-300/20 blur-[100px]" />
+        <div className="absolute right-1/4 bottom-[-8rem] size-[22rem] rounded-full bg-indigo-500/20 blur-[90px]" />
+        <div className="studio-grid absolute inset-0" />
+      </div>
+      <header className="sticky top-0 z-20 border-b border-white/10 bg-gradient-to-r from-[#0b1524]/88 via-[#121820]/72 to-[#1a160e]/80 backdrop-blur-md">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-sky-300/70 to-amber-200/40" />
         <div className="mx-auto flex min-h-16 max-w-[1600px] items-center justify-between gap-4 px-4 py-3">
           <div className="min-w-0">
             <h1 className="font-wordmark text-[1.65rem] leading-none font-semibold tracking-[0.42em] text-white uppercase sm:text-[1.9rem]">
@@ -353,7 +358,7 @@ export function MeetingStudio() {
       </header>
 
       <div className="relative z-10 mx-auto grid w-full max-w-[1600px] flex-1 lg:grid-cols-[240px_minmax(0,1fr)_260px]">
-        <aside className="order-2 space-y-6 border-white/10 px-4 py-6 lg:order-1 lg:border-r lg:bg-gradient-to-b lg:from-white/5 lg:to-transparent">
+        <aside className="relative order-2 space-y-6 px-4 py-6 lg:order-1 lg:after:absolute lg:after:top-10 lg:after:right-0 lg:after:bottom-10 lg:after:w-px lg:after:bg-gradient-to-b lg:after:from-sky-300/50 lg:after:via-white/15 lg:after:to-transparent">
           <section className="space-y-3">
             <div>
               <h2 className="text-sm font-medium">Kambarys</h2>
@@ -478,7 +483,11 @@ export function MeetingStudio() {
           </section>
         </aside>
 
-        <main className="order-1 flex min-w-0 flex-col px-4 py-6 lg:order-2">
+        <main className="relative order-1 flex min-w-0 flex-col px-4 py-6 lg:order-2">
+          <div className="pointer-events-none absolute top-5 left-4 size-7 border-t border-l border-sky-300/45" />
+          <div className="pointer-events-none absolute top-5 right-4 size-7 border-t border-r border-amber-200/35" />
+          <div className="pointer-events-none absolute bottom-5 left-4 size-7 border-b border-l border-sky-300/25" />
+          <div className="pointer-events-none absolute bottom-5 right-4 size-7 border-b border-r border-amber-200/20" />
           <SetupGuide status={status} />
 
           {displayError ? (
@@ -556,7 +565,7 @@ export function MeetingStudio() {
           ) : null}
         </main>
 
-        <aside className="order-3 space-y-6 border-white/10 px-4 py-6 lg:border-l lg:bg-gradient-to-b lg:from-white/5 lg:to-transparent">
+        <aside className="relative order-3 space-y-6 px-4 py-6 lg:before:absolute lg:before:top-10 lg:before:bottom-10 lg:before:left-0 lg:before:w-px lg:before:bg-gradient-to-b lg:before:from-amber-200/40 lg:before:via-white/12 lg:before:to-transparent">
           {saved ? (
             <section className="space-y-2">
               <h2 className="text-sm font-medium">Eksportas</h2>

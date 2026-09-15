@@ -24,7 +24,7 @@ export function LiveTranscript({
 
   return (
     <div className="relative min-h-[42vh] flex-1">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-sky-300/40 to-transparent" />
       <div className="max-h-[min(62vh,640px)] overflow-y-auto py-6 pr-1">
         {!supported && recording ? (
           <p className="text-sm text-muted-foreground">Ši naršyklė nerodo gyvo teksto. Garso takelis vis tiek rašomas.</p>
@@ -68,7 +68,7 @@ export function LiveTranscript({
         )}
         <div ref={endRef} />
       </div>
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-background to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-[#0b1018] to-transparent" />
     </div>
   );
 }
