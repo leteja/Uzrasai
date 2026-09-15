@@ -42,21 +42,12 @@ export async function POST(request: Request) {
   }
 
   const recipients = to.split(/[,;\s]+/).filter((item) => item.includes("@"));
-  const decisions = meeting.result.summary.decisions
-    .map((item) => `<li>${escapeHtml(item)}</li>`)
-    .join("");
-  const nextSteps = meeting.result.summary.nextSteps
-    .map((item) => `<li>${escapeHtml(item)}</li>`)
-    .join("");
-
   const html = `
     <div style="font-family:Georgia,serif;line-height:1.55;color:#1d2430;max-width:640px">
       <p style="font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#3f7a7a">Užrašai</p>
       <h1 style="font-size:24px;line-height:1.2">${escapeHtml(meeting.result.summary.title)}</h1>
       <p>${escapeHtml(meeting.result.summary.narrative).replaceAll("\n", "<br/>")}</p>
-      ${decisions ? `<h2>Nutarimai</h2><ul>${decisions}</ul>` : ""}
-      ${nextSteps ? `<h2>Tolesni žingsniai</h2><ul>${nextSteps}</ul>` : ""}
-      <p style="color:#667085;font-size:13px">Visas pokalbis pagal kalbėtojus — prisegtame Markdown faile.</p>
+      <p style="color:#667085;font-size:13px">Visas pokalbis — prisegtame faile.</p>
     </div>
   `;
 

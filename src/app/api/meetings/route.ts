@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     id: body.id || crypto.randomUUID(),
     createdAt: body.createdAt || new Date().toISOString(),
     participants: body.participants ?? [],
-    expectedCount: body.expectedCount ?? body.participants?.length ?? 1,
+    expectedCount: body.expectedCount ?? 0,
     speakerNames: body.speakerNames ?? {},
     result: withSpeakerCount(body.result),
     locked,
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
       body.result,
       body.speakerNames ?? {},
       body.participants ?? [],
-      body.expectedCount ?? body.participants?.length ?? 1,
+      body.expectedCount ?? 0,
       locked
     ),
   };

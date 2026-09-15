@@ -26,7 +26,7 @@ import { cn } from "@/lib/utils";
 
 function speakerChoices(saved: SavedMeeting): SpeakerId[] {
   const present = uniqueSpeakerIds(saved.result.segments).length;
-  return listSpeakers(Math.min(MAX_SPEAKERS, Math.max(present, saved.expectedCount || 1, 2)));
+  return listSpeakers(Math.min(MAX_SPEAKERS, Math.max(present, 2)));
 }
 
 export function ProtocolDocument({
@@ -119,8 +119,9 @@ export function ProtocolDocument({
             />
           )}
           <p className="text-xs text-muted-foreground">
-            Prabilo {result.speakerCount}
-            {saved.expectedCount > 0 ? ` iš ${saved.expectedCount}` : ""}
+            {saved.expectedCount > 0
+              ? `Prabilo ${result.speakerCount} iš ${saved.expectedCount}`
+              : `Prabilo ${result.speakerCount}`}
             {locked ? " · keisti negalima" : " · galite taisyti raides ir priskirti vardus"}
           </p>
         </div>
@@ -184,34 +185,6 @@ export function ProtocolDocument({
               value={result.summary.narrative}
               onChange={(event) => patchSummary({ narrative: event.target.value })}
               className="min-h-40 leading-7"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="decisions">Nutarimai — po vieną eilutėje</Label>
-            <Textarea
-              id="decisions"
-              disabled={locked}
-              value={result.summary.decisions.join("\n")}
-              onChange={(event) =>
-                patchSummary({
-                  decisions: event.target.value.split("\n").map((line) => line.trimEnd()),
-                })
-              }
-              className="min-h-24"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="next-steps">Tolesni žingsniai — po vieną eilutėje</Label>
-            <Textarea
-              id="next-steps"
-              disabled={locked}
-              value={result.summary.nextSteps.join("\n")}
-              onChange={(event) =>
-                patchSummary({
-                  nextSteps: event.target.value.split("\n").map((line) => line.trimEnd()),
-                })
-              }
-              className="min-h-24"
             />
           </div>
         </TabsContent>

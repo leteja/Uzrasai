@@ -133,19 +133,7 @@ export function withSpeakerCount(result: MeetingResult): MeetingResult {
 
 export function toSummaryCopyText(result: MeetingResult, createdAt: string): string {
   const date = new Date(createdAt).toLocaleString("lt-LT");
-  const lines = [date, "", result.summary.narrative.trim()];
-
-  const decisions = result.summary.decisions.map((item) => item.trim()).filter(Boolean);
-  if (decisions.length > 0) {
-    lines.push("", ...decisions);
-  }
-
-  const nextSteps = result.summary.nextSteps.map((item) => item.trim()).filter(Boolean);
-  if (nextSteps.length > 0) {
-    lines.push("", ...nextSteps);
-  }
-
-  return lines.join("\n").trim();
+  return [date, "", result.summary.narrative.trim()].join("\n").trim();
 }
 
 export function toTranscriptCopyText(
@@ -182,32 +170,10 @@ export function toMarkdown(
   ];
 
   if (expectedCount > 0) {
-    lines.push(`Dalyvių skaičius: ${expectedCount}. Prabilo: ${result.speakerCount}.`);
-  } else {
-    lines.push(`Dalyvių skaičius: nepateikta. Prabilo: ${result.speakerCount}.`);
-  }
-  const assignedNames = Object.entries(names)
-    .filter(([, value]) => value.trim())
-    .map(([id, value]) => `${speakerName(id, names)} (${id})`);
-  if (assignedNames.length > 0) {
-    lines.push(`Prisistatė: ${assignedNames.join(", ")}`);
+    lines.push(`Prabilo ${result.speakerCount} iš ${expectedCount}.`);
   }
 
-  lines.push("", "## Susitikimo aprašymas", "", result.summary.narrative, "");
-
-  if (result.summary.decisions.length > 0) {
-    lines.push("## Nutarimai", "");
-    for (const item of result.summary.decisions) lines.push(`- ${item}`);
-    lines.push("");
-  }
-
-  if (result.summary.nextSteps.length > 0) {
-    lines.push("## Tolesni žingsniai", "");
-    for (const item of result.summary.nextSteps) lines.push(`- ${item}`);
-    lines.push("");
-  }
-
-  lines.push("## Visas pokalbis pagal kalbėtojus", "");
+  lines.push("", "## Susitikimo aprašymas", "", result.summary.narrative, "", "## Visas pokalbis pagal kalbėtojus", "");
   for (const segment of result.segments) {
     lines.push(`**${speakerName(segment.speaker, names)}** (${formatTimestamp(segment.startMs)})`);
     lines.push(segment.text);

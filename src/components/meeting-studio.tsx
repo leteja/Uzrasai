@@ -479,8 +479,10 @@ export function MeetingStudio() {
                 <div>
                   <CardTitle className="font-heading text-2xl">{result.summary.title}</CardTitle>
                   <CardDescription>
-                    {formatClock(result.durationMs)} · prabilo {result.speakerCount}
-                    {saved.expectedCount > 0 ? ` iš ${saved.expectedCount}` : ""}
+                    {formatClock(result.durationMs)}
+                    {saved.expectedCount > 0
+                      ? ` · prabilo ${result.speakerCount} iš ${saved.expectedCount}`
+                      : ` · prabilo ${result.speakerCount}`}
                   </CardDescription>
                 </div>
 

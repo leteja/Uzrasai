@@ -32,9 +32,7 @@ Vardus naudok tik jei kalbėtojas pats prisistato transkripte (pvz. „aš Alana
 Grąžink tik JSON:
 {
   "title": "trumpas susitikimo pavadinimas",
-  "narrative": "3–8 pastraipos. Pilnas, bet glaustas viso pokalbio aprašymas: kas kalbėjo, ką pasakė, kokie argumentai, skaičiai, datos, sutartys.",
-  "decisions": ["nutarimai, jei buvo"],
-  "nextSteps": ["ką kas žadėjo padaryti"]
+  "narrative": "3–8 pastraipos. Pilnas, bet glaustas viso pokalbio aprašymas: kas kalbėjo, ką pasakė, kokie argumentai, skaičiai, datos, sutartys."
 }`;
 
 type AudioInput = {
@@ -145,19 +143,18 @@ function asGeminiMime(mimeType: string): string {
 }
 
 function attendeesHint(expectedCount?: number): string {
-  if (!expectedCount || expectedCount <= 0) {
-    return `\nDalyvių skaičius nežinomas.
-Vardą ar pravardę naudok TIK jei kalbėtojas pats prisistato transkripte (pvz. „aš Alanas“, „čia direktorius“).
+  const nameRules = `Vardą ar pravardę naudok TIK jei kalbėtojas pats prisistato transkripte (pvz. „aš Alanas“, „čia direktorius“).
 Tikras vardas svarbesnis už pareigas ar pravardę (direktorius, bosas).
 Jei neprisistatė — naudok SPEAKER_1, SPEAKER_2…
 Balsus žymėk SPEAKER_1, SPEAKER_2, SPEAKER_3 ir t. t.`;
+
+  if (!expectedCount || expectedCount <= 0) {
+    return `\n${nameRules}`;
   }
+
   const inRoom = Math.min(20, expectedCount);
   return `\nKambaryje ${inRoom} dalyvių.
-Vardą ar pravardę naudok TIK jei kalbėtojas pats prisistato transkripte (pvz. „aš Alanas“, „čia direktorius“).
-Tikras vardas svarbesnis už pareigas ar pravardę (direktorius, bosas).
-Jei neprisistatė — naudok SPEAKER_1, SPEAKER_2…
-Balsus žymėk SPEAKER_1, SPEAKER_2, SPEAKER_3 ir t. t.`;
+${nameRules}`;
 }
 
 function extractGeminiTurns(response: {
@@ -424,9 +421,7 @@ Grąžink tik JSON:
   "segments": [{"speaker":"SPEAKER_1","text":"...","startMs":0,"endMs":4000}],
   "summary": {
     "title": "...",
-    "narrative": "3–8 pastraipos",
-    "decisions": [],
-    "nextSteps": []
+    "narrative": "3–8 pastraipos"
   }
 }`,
     audio: { mimeType: "audio/mp3", data: inlineData.data },
@@ -455,8 +450,8 @@ Grąžink tik JSON:
     summary: {
       title: parsed.summary?.title?.trim() || "Susitikimo užrašai",
       narrative: parsed.summary?.narrative?.trim() || "",
-      decisions: Array.isArray(parsed.summary?.decisions) ? parsed.summary.decisions.map(String) : [],
-      nextSteps: Array.isArray(parsed.summary?.nextSteps) ? parsed.summary.nextSteps.map(String) : [],
+      decisions: [],
+      nextSteps: [],
     },
     provider: "gemini",
     language: "lt",
@@ -566,7 +561,7 @@ ${SUMMARY_PROMPT}
 ${attendeesHint(input.expectedCount)}
 
 Papildomai JSON turi turėti segments masyvą su visomis Whisper atkarpomis:
-{"segments":[{"index":0,"speaker":"SPEAKER_1"}], "title":"...","narrative":"...","decisions":[],"nextSteps":[]}`,
+{"segments":[{"index":0,"speaker":"SPEAKER_1"}], "title":"...","narrative":"..."}`,
       },
       {
         role: "user",
