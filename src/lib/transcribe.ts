@@ -13,10 +13,10 @@ import {
   type MeetingSegment,
   type MeetingSummary,
   type SpeakerId,
-  defaultSpeakerLabel,
   normalizeSpeaker,
   parseOffsetMs,
   speakerId,
+  speakerName,
   uniqueSpeakerIds,
 } from "@/lib/meeting";
 
@@ -25,9 +25,14 @@ const CHUNK_SECONDS = 24 * 60;
 
 const SUMMARY_PROMPT = `Tu esi susitikimų sekretorius. Dirbi tik lietuvių kalba.
 Gavai pažodžiui transkribuotą pokalbį su kalbėtojų žymėmis. Pokalbyje gali būti iki ${MAX_SPEAKERS} žmonių.
-Parašyk viso susitikimo aprašymą: sutrumpink pasikartojimus, bet nepraleisk to, kas buvo pasakyta.
-Nerašyk, ko pokalbyje nebuvo. Jei nutarimų ar darbų nėra, palik tuščius sąrašus.
-Vardus naudok tik jei kalbėtojas pats prisistato transkripte (pvz. „aš Alanas“). Tinka pravardė ar pareigos (direktorius, bosas), bet tikras vardas svarbesnis. Negalvok vardų.
+
+SVARBU:
+- Nekartok transkripto pažodžiui ar beveik pažodžiui. Parašyk savo žodžiais, sutrumpintai ir struktūruotai.
+- Rašyk 3–8 pastraipomis (ne punktais, ne dialogo forma).
+- Sujunk pasikartojimus, bet nepraleisk esminių faktų, skaičių, datų ir sprendimų.
+- Nerašyk, ko pokalbyje nebuvo.
+- Jei žinai kalbėtojo vardą — naudok jį aprašyme vietoje „Kalbėtojas N“.
+- Vardus naudok tik jei jie aiškiai nurodyti (prisistatymas transkripte arba žinomi vardų sąraše). Negalvok vardų.
 
 Grąžink tik JSON:
 {
@@ -54,13 +59,28 @@ function emptySummary(): MeetingSummary {
   };
 }
 
-function fallbackSummary(segments: MeetingSegment[]): MeetingSummary {
-  const text = transcriptFromSegments(segments);
-  const firstLine = segments[0]?.text.trim() || "Susitikimo užrašai";
-  const title = firstLine.length > 60 ? `${firstLine.slice(0, 57)}…` : firstLine;
+function fallbackSummary(segments: MeetingSegment[], names: Record<string, string> = {}): MeetingSummary {
+  const speakers = uniqueSpeakerIds(segments);
+  const snippets: string[] = [];
+
+  for (const speaker of speakers) {
+    const text = segments
+      .filter((segment) => segment.speaker === speaker)
+      .map((segment) => segment.text.trim())
+      .join(" ");
+    if (!text) continue;
+    const label = speakerName(speaker, names);
+    const sentence = text.split(/(?<=[.!?…])\s+/).slice(0, 2).join(" ").trim();
+    snippets.push(`${label} ${sentence}`);
+  }
+
+  const narrative = snippets.join("\n\n").trim() || "Nepavyko parengti aprašymo.";
+  const titleSource = snippets[0] || segments[0]?.text.trim() || "Susitikimo užrašai";
+  const title = titleSource.length > 60 ? `${titleSource.slice(0, 57)}…` : titleSource;
+
   return {
     title: title || "Susitikimo užrašai",
-    narrative: text,
+    narrative,
     decisions: [],
     nextSteps: [],
   };
@@ -87,10 +107,65 @@ function parseSummary(raw: string): MeetingSummary {
   }
 }
 
-function transcriptFromSegments(segments: MeetingSegment[]): string {
+function transcriptFromSegments(segments: MeetingSegment[], names: Record<string, string> = {}): string {
   return segments
-    .map((segment) => `${defaultSpeakerLabel(segment.speaker)}: ${segment.text}`)
+    .map((segment) => `${speakerName(segment.speaker, names)}: ${segment.text}`)
     .join("\n");
+}
+
+const NAME_PATTERNS: RegExp[] = [
+  /\b(?:aš|as)\s+(?:es[ui]|esu)\s+([A-ZĄČĘĖĮŠŲŪŽ][a-ząčęėįšųūž]+(?:\s+[A-ZĄČĘĖĮŠŲŪŽ][a-ząčęėįšųūž]+)?)/i,
+  /\b(?:mano\s+vardas)\s+(?:yra\s+)?([A-ZĄČĘĖĮŠŲŪŽ][a-ząčęėįšųūž]+)/i,
+  /\b(?:čia|cia)\s+([A-ZĄČĘĖĮŠŲŪŽ][a-ząčęėįšųūž]+)/i,
+  /\b(?:aš|as)\s+[-–—]\s*([A-ZĄČĘĖĮŠŲŪŽ][a-ząčęėįšųūž]+)/i,
+  /\b(?:aš|as)\s+([A-ZĄČĘĖĮŠŲŪŽ][a-ząčęėįšųūž]+)\b/i,
+];
+
+const TITLE_PATTERNS: RegExp[] = [
+  /\b(?:aš|as)\s+(?:es[ui]|esu)\s+(direktorius|bosas|vadovas|vadybininkas|vadybininkė|finansininkas|finansininkė)/i,
+  /\b(?:čia|cia)\s+(direktorius|bosas|vadovas|vadybininkas|vadybininkė)/i,
+];
+
+function normalizeName(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function inferSpeakerNamesFromText(segments: MeetingSegment[]): Record<string, string> {
+  const names: Record<string, string> = {};
+
+  for (const speaker of uniqueSpeakerIds(segments)) {
+    const text = segments
+      .filter((segment) => segment.speaker === speaker)
+      .map((segment) => segment.text)
+      .join(" ");
+
+    for (const pattern of NAME_PATTERNS) {
+      const match = pattern.exec(text);
+      if (match?.[1]) {
+        names[speaker] = normalizeName(match[1]);
+        break;
+      }
+    }
+
+    if (names[speaker]) continue;
+
+    for (const pattern of TITLE_PATTERNS) {
+      const match = pattern.exec(text);
+      if (match?.[1]) {
+        names[speaker] = normalizeName(match[1]);
+        break;
+      }
+    }
+  }
+
+  return names;
+}
+
+function namesHint(names: Record<string, string>): string {
+  const entries = Object.entries(names).filter(([, value]) => value.trim());
+  if (entries.length === 0) return "";
+  const lines = entries.map(([speaker, name]) => `${speaker} → ${name}`).join("\n");
+  return `\nŽinomi kalbėtojų vardai (naudok aprašyme):\n${lines}\n`;
 }
 
 function uniqueSpeakers(segments: MeetingSegment[]): number {
@@ -390,11 +465,12 @@ async function summarizeWithGemini(
   ai: GoogleGenAI,
   segments: MeetingSegment[],
   participants?: string[],
-  expectedCount?: number
+  expectedCount?: number,
+  speakerNames: Record<string, string> = {}
 ): Promise<MeetingSummary> {
   const text = await geminiJsonText(
     ai,
-    `${SUMMARY_PROMPT}${attendeesHint(expectedCount)}\n\nPOKALBIS:\n${transcriptFromSegments(segments)}`
+    `${SUMMARY_PROMPT}${namesHint(speakerNames)}${attendeesHint(expectedCount)}\n\nPOKALBIS:\n${transcriptFromSegments(segments, speakerNames)}`
   );
   return parseSummary(text);
 }
@@ -485,16 +561,18 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
 
   if (transcribedChunks.length > 0) {
     const segments = await unifyChunkSpeakers(ai, transcribedChunks);
+    const speakerNames = await inferSpeakerNames(segments);
     let summary: MeetingSummary;
     try {
-      summary = await summarizeWithGemini(ai, segments, input.participants, input.expectedCount);
+      summary = await summarizeWithGemini(ai, segments, input.participants, input.expectedCount, speakerNames);
     } catch (error) {
-      console.warn("Santraukos generavimas nepavyko, naudojamas transkriptas:", error);
-      summary = fallbackSummary(segments);
+      console.warn("Santraukos generavimas nepavyko, naudojamas supaprastintas aprašymas:", error);
+      summary = fallbackSummary(segments, speakerNames);
     }
     return {
       segments,
       summary,
+      speakerNames,
       provider: "gemini",
       language: "lt",
       durationMs: input.durationMs,
@@ -619,10 +697,15 @@ Papildomai JSON turi turėti segments masyvą su visomis Whisper atkarpomis:
 }
 
 export async function inferSpeakerNames(segments: MeetingSegment[]): Promise<Record<string, string>> {
-  const apiKey = getGeminiKey();
-  if (!apiKey || segments.length === 0) return {};
-
+  const fromText = inferSpeakerNamesFromText(segments);
   const speakers = uniqueSpeakerIds(segments);
+  const missing = speakers.filter((speaker) => !fromText[speaker]);
+
+  if (missing.length === 0) return fromText;
+
+  const apiKey = getGeminiKey();
+  if (!apiKey) return fromText;
+
   const ai = new GoogleGenAI({ apiKey });
 
   try {
@@ -634,17 +717,17 @@ Jei kalbėtojas neprisistatė — palik tuščią eilutę toje reikšmėje.
 Grąžink tik JSON objektą, raktai SPEAKER_1, SPEAKER_2 ir t. t.
 
 POKALBIS:
-${transcriptFromSegments(segments)}`
+${transcriptFromSegments(segments, fromText)}`
     );
     const parsed = JSON.parse(text) as Record<string, string>;
-    const names: Record<string, string> = {};
-    for (const speaker of speakers) {
+    const names = { ...fromText };
+    for (const speaker of missing) {
       const value = parsed[speaker]?.trim();
       if (value) names[speaker] = value;
     }
     return names;
   } catch {
-    return {};
+    return fromText;
   }
 }
 

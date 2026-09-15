@@ -52,7 +52,7 @@ export async function POST(request: Request) {
       expectedCount,
     });
 
-    const speakerNames = await inferSpeakerNames(result.segments);
+    const speakerNames = result.speakerNames ?? (await inferSpeakerNames(result.segments));
 
     const saved = await saveMeeting({
       id: crypto.randomUUID(),

@@ -9,7 +9,7 @@ export function SetupGuide({ status }: { status: ProviderStatus | null }) {
   const mailReady = Boolean(status?.resend);
 
   return (
-    <Card className="ring-2 ring-speaker-two/40">
+    <Card className="ring-2 ring-primary/25">
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2">
           <CardTitle>Savininkui: vieną kartą įrašykite raktą serveryje</CardTitle>

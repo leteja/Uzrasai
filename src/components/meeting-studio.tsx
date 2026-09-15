@@ -42,7 +42,6 @@ const PROCESS_STEPS = [
 ];
 
 const EMAIL_KEY = "uzrasai-email";
-const COUNT_KEY = "uzrasai-expected-count";
 
 function friendlyFetchError(message: string): string {
   if (message === "Failed to fetch" || message.includes("NetworkError") || message.includes("Load failed")) {
@@ -89,10 +88,6 @@ export function MeetingStudio() {
   const result = saved?.result ?? null;
 
   useEffect(() => {
-    const storedCount = Number(localStorage.getItem(COUNT_KEY));
-    if (Number.isFinite(storedCount) && storedCount >= 1) {
-      setExpectedCount(Math.min(20, storedCount));
-    }
     void fetch("/api/status")
       .then((response) => response.json())
       .then((data: ProviderStatus) => {
@@ -111,10 +106,6 @@ export function MeetingStudio() {
       );
     void refreshArchive();
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem(COUNT_KEY, expectedCount === null ? "0" : String(expectedCount));
-  }, [expectedCount]);
 
   useEffect(() => {
     if (emailTo) localStorage.setItem(EMAIL_KEY, emailTo);
@@ -348,7 +339,7 @@ export function MeetingStudio() {
             </CardContent>
           </Card>
 
-          <Card className="ring-2 ring-speaker-two/25">
+          <Card className="ring-2 ring-primary/20">
             <CardHeader>
               <CardTitle>Įrašas kambaryje</CardTitle>
               <CardDescription>Start → kalbėkite → Stop.</CardDescription>
@@ -372,7 +363,7 @@ export function MeetingStudio() {
                   disabled={processing || recorder.state === "requesting" || recorder.state === "stopping"}
                   className={cn(
                     "flex size-24 items-center justify-center rounded-full text-white shadow-md transition disabled:opacity-50",
-                    recorder.isRecording ? "bg-red-500 hover:bg-red-400" : "bg-speaker-two hover:brightness-110"
+                    recorder.isRecording ? "bg-red-500 hover:bg-red-400" : "bg-primary hover:bg-primary/90"
                   )}
                   aria-label={recorder.isRecording ? "Stabdyti įrašą" : "Pradėti įrašą"}
                 >

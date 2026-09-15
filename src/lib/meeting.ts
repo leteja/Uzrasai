@@ -25,6 +25,7 @@ export type MeetingResult = {
   language: "lt";
   durationMs: number;
   speakerCount: number;
+  speakerNames?: Record<string, string>;
   note?: string;
 };
 
@@ -184,14 +185,14 @@ export function toMarkdown(
 }
 
 export const SPEAKER_PALETTE = [
-  { bg: "oklch(0.45 0.09 195 / 0.14)", fg: "oklch(0.38 0.09 195)" },
-  { bg: "oklch(0.58 0.13 70 / 0.16)", fg: "oklch(0.5 0.12 70)" },
-  { bg: "oklch(0.5 0.12 310 / 0.14)", fg: "oklch(0.42 0.12 310)" },
-  { bg: "oklch(0.48 0.11 145 / 0.14)", fg: "oklch(0.4 0.1 145)" },
-  { bg: "oklch(0.55 0.14 25 / 0.14)", fg: "oklch(0.48 0.13 25)" },
-  { bg: "oklch(0.5 0.1 250 / 0.14)", fg: "oklch(0.4 0.1 250)" },
-  { bg: "oklch(0.52 0.08 40 / 0.16)", fg: "oklch(0.44 0.08 40)" },
-  { bg: "oklch(0.46 0.08 200 / 0.16)", fg: "oklch(0.38 0.08 200)" },
+  { bg: "oklch(0.42 0.14 250 / 0.14)", fg: "oklch(0.35 0.12 250)" },
+  { bg: "oklch(0.52 0.11 245 / 0.14)", fg: "oklch(0.42 0.1 245)" },
+  { bg: "oklch(0.28 0.02 250 / 0.12)", fg: "oklch(0.22 0.03 250)" },
+  { bg: "oklch(0.58 0.08 250 / 0.12)", fg: "oklch(0.45 0.08 250)" },
+  { bg: "oklch(0.35 0.04 250 / 0.14)", fg: "oklch(0.28 0.04 250)" },
+  { bg: "oklch(0.48 0.06 240 / 0.14)", fg: "oklch(0.38 0.06 240)" },
+  { bg: "oklch(0.62 0.05 250 / 0.12)", fg: "oklch(0.5 0.05 250)" },
+  { bg: "oklch(0.2 0.02 250 / 0.14)", fg: "oklch(0.16 0.02 250)" },
 ] as const;
 
 export function speakerTone(id: SpeakerId | string) {
