@@ -1,18 +1,19 @@
 {
-  "name": "all-inclusive-sweeper",
+  "name": "du-balsai",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --port 43124",
     "build": "next build",
-    "start": "next start",
-    "lint": "eslint",
-    "scan": "tsx scripts/scan.ts"
+    "start": "next start --port 43124",
+    "lint": "eslint"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
+    "@google/genai": "^1.19.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "groq-sdk": "^0.32.0",
     "lucide-react": "^1.39.0",
     "next": "16.3.4",
     "react": "19.2.8",
@@ -29,7 +30,6 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
     "tailwindcss": "^4",
-    "tsx": "^4.19.4",
     "typescript": "^5"
   }
 }
