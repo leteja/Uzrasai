@@ -145,7 +145,14 @@ function asGeminiMime(mimeType: string): string {
 }
 
 function attendeesHint(expectedCount?: number): string {
-  const inRoom = Math.min(20, Math.max(expectedCount || 1, 1));
+  if (!expectedCount || expectedCount <= 0) {
+    return `\nDalyvių skaičius nežinomas.
+Vardą ar pravardę naudok TIK jei kalbėtojas pats prisistato transkripte (pvz. „aš Alanas“, „čia direktorius“).
+Tikras vardas svarbesnis už pareigas ar pravardę (direktorius, bosas).
+Jei neprisistatė — naudok SPEAKER_1, SPEAKER_2…
+Balsus žymėk SPEAKER_1, SPEAKER_2, SPEAKER_3 ir t. t.`;
+  }
+  const inRoom = Math.min(20, expectedCount);
   return `\nKambaryje ${inRoom} dalyvių.
 Vardą ar pravardę naudok TIK jei kalbėtojas pats prisistato transkripte (pvz. „aš Alanas“, „čia direktorius“).
 Tikras vardas svarbesnis už pareigas ar pravardę (direktorius, bosas).

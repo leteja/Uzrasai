@@ -34,10 +34,9 @@ export async function POST(request: Request) {
       participants = [];
     }
     participants = participants.map((name) => String(name).trim()).filter(Boolean);
-    const expectedCount = Math.min(
-      20,
-      Math.max(1, Number(form.get("expectedCount") || participants.length || 1))
-    );
+    const rawCount = Number(form.get("expectedCount") || 0);
+    const expectedCount =
+      Number.isFinite(rawCount) && rawCount > 0 ? Math.min(20, Math.max(1, Math.round(rawCount))) : 0;
     const locked = String(form.get("locked") || "") === "true";
 
     const buffer = Buffer.from(await audio.arrayBuffer());

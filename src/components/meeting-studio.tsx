@@ -83,7 +83,7 @@ export function MeetingStudio() {
   const [processStep, setProcessStep] = useState(0);
   const [saved, setSaved] = useState<SavedMeeting | null>(null);
   const [archive, setArchive] = useState<MeetingListItem[]>([]);
-  const [expectedCount, setExpectedCount] = useState(6);
+  const [expectedCount, setExpectedCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [emailTo, setEmailTo] = useState("");
@@ -100,7 +100,6 @@ export function MeetingStudio() {
     if (Number.isFinite(storedCount) && storedCount >= 1) {
       setExpectedCount(Math.min(20, storedCount));
     }
-
     void fetch("/api/status")
       .then((response) => response.json())
       .then((data: ProviderStatus) => {
@@ -121,7 +120,7 @@ export function MeetingStudio() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(COUNT_KEY, String(expectedCount));
+    localStorage.setItem(COUNT_KEY, expectedCount === null ? "0" : String(expectedCount));
   }, [expectedCount]);
 
   useEffect(() => {
@@ -158,7 +157,7 @@ export function MeetingStudio() {
       form.append("mimeType", mimeType);
       form.append("durationMs", String(durationMs));
       form.append("participants", "[]");
-      form.append("expectedCount", String(expectedCount));
+      form.append("expectedCount", String(expectedCount ?? 0));
       if (liveCaption) form.append("liveCaption", liveCaption);
 
       const response = await fetch("/api/process", { method: "POST", body: form });
@@ -302,8 +301,10 @@ export function MeetingStudio() {
                     variant="outline"
                     size="icon"
                     aria-label="Mažiau žmonių"
-                    disabled={expectedCount <= 1}
-                    onClick={() => setExpectedCount((count) => Math.max(1, count - 1))}
+                    disabled={expectedCount === null}
+                    onClick={() =>
+                      setExpectedCount((count) => (count === null || count <= 1 ? null : count - 1))
+                    }
                   >
                     <Minus />
                   </Button>
@@ -314,9 +315,15 @@ export function MeetingStudio() {
                     max={20}
                     inputMode="numeric"
                     className="w-20 text-center"
-                    value={expectedCount}
+                    placeholder="—"
+                    value={expectedCount ?? ""}
                     onChange={(event) => {
-                      const value = Number(event.target.value);
+                      const raw = event.target.value.trim();
+                      if (!raw) {
+                        setExpectedCount(null);
+                        return;
+                      }
+                      const value = Number(raw);
                       if (!Number.isFinite(value)) return;
                       setExpectedCount(Math.min(20, Math.max(1, Math.round(value))));
                     }}
@@ -326,33 +333,33 @@ export function MeetingStudio() {
                     variant="outline"
                     size="icon"
                     aria-label="Daugiau žmonių"
-                    disabled={expectedCount >= 20}
-                    onClick={() => setExpectedCount((count) => Math.min(20, count + 1))}
+                    disabled={expectedCount !== null && expectedCount >= 20}
+                    onClick={() => setExpectedCount((count) => Math.min(20, (count ?? 0) + 1))}
                   >
                     <Plus />
                   </Button>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  {expectedCount} {peopleWord(expectedCount)}
+                  {expectedCount === null ? "Nežinoma" : `${expectedCount} ${peopleWord(expectedCount)}`}
                 </p>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="bg-[linear-gradient(180deg,oklch(0.23_0.03_250),oklch(0.18_0.02_250))] text-white ring-white/10">
+          <Card className="ring-2 ring-speaker-two/25">
             <CardHeader>
-              <CardTitle className="text-white">Įrašas kambaryje</CardTitle>
-              <CardDescription className="text-white/65">Start → kalbėkite → Stop.</CardDescription>
+              <CardTitle>Įrašas kambaryje</CardTitle>
+              <CardDescription>Start → kalbėkite → Stop.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
-              <div className="rounded-2xl bg-black/25 px-3 py-4 ring-1 ring-white/10">
+              <div className="rounded-2xl bg-muted/70 px-3 py-4 ring-1 ring-border">
                 <Waveform stream={recorder.stream} active={recorder.isRecording} />
-                <div className="mt-3 flex items-center justify-between text-sm text-white/70">
-                  <span className={cn("inline-flex items-center gap-2", recorder.isRecording && "text-red-300")}>
-                    <span className={cn("size-2 rounded-full bg-white/30", recorder.isRecording && "animate-pulse bg-red-400")} />
+                <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
+                  <span className={cn("inline-flex items-center gap-2", recorder.isRecording && "text-red-600")}>
+                    <span className={cn("size-2 rounded-full bg-muted-foreground/30", recorder.isRecording && "animate-pulse bg-red-500")} />
                     {recorder.isRecording ? "Įrašoma" : processing ? "Apdorojama kelias minutes" : "Laukiama"}
                   </span>
-                  <span className="font-mono tabular-nums text-lg text-white">{formatClock(recorder.elapsedMs)}</span>
+                  <span className="font-mono tabular-nums text-lg text-foreground">{formatClock(recorder.elapsedMs)}</span>
                 </div>
               </div>
 
@@ -362,7 +369,7 @@ export function MeetingStudio() {
                   onClick={() => void onToggleRecord()}
                   disabled={processing || recorder.state === "requesting" || recorder.state === "stopping"}
                   className={cn(
-                    "flex size-24 items-center justify-center rounded-full text-white shadow-[0_16px_40px_-18px_rgba(0,0,0,0.7)] transition disabled:opacity-50",
+                    "flex size-24 items-center justify-center rounded-full text-white shadow-md transition disabled:opacity-50",
                     recorder.isRecording ? "bg-red-500 hover:bg-red-400" : "bg-speaker-two hover:brightness-110"
                   )}
                   aria-label={recorder.isRecording ? "Stabdyti įrašą" : "Pradėti įrašą"}
@@ -376,31 +383,31 @@ export function MeetingStudio() {
                   )}
                 </button>
                 <div className="text-center">
-                  <p className="text-sm font-medium text-white">{recorder.isRecording ? "Stop" : "Start"}</p>
-                  <p className="text-xs text-white/55">
+                  <p className="text-sm font-medium">{recorder.isRecording ? "Stop" : "Start"}</p>
+                  <p className="text-xs text-muted-foreground">
                     {recorder.isRecording ? "Stabdyti ir apdoroti" : "Iki 70 min."}
                   </p>
                 </div>
               </div>
 
               {recorder.isRecording && captions.liveText ? (
-                <p className="rounded-xl bg-white/8 p-3 text-sm leading-6 text-white/80">
-                  <span className="mr-2 text-[11px] tracking-wide text-white/45 uppercase">Gyvos antraštės</span>
+                <p className="rounded-xl bg-muted/80 p-3 text-sm leading-6 text-foreground">
+                  <span className="mr-2 text-[11px] tracking-wide text-muted-foreground uppercase">Gyvos antraštės</span>
                   {captions.liveText}
                 </p>
               ) : null}
 
               {processing ? (
-                <div className="flex items-center gap-2 rounded-xl bg-white/8 px-3 py-2 text-sm text-white/80">
+                <div className="flex items-center gap-2 rounded-xl bg-muted/80 px-3 py-2 text-sm text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" />
                   {PROCESS_STEPS[processStep]}
                 </div>
               ) : null}
 
-              <Separator className="bg-white/10" />
+              <Separator />
 
               <div className="flex flex-col gap-3 sm:flex-row">
-                <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm hover:bg-white/15">
+                <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm hover:bg-muted/60">
                   <FileAudio className="size-4" />
                   Įkelti garso failą
                   <input
@@ -471,7 +478,7 @@ export function MeetingStudio() {
                   <CardTitle className="font-heading text-2xl">{result.summary.title}</CardTitle>
                   <CardDescription>
                     {formatClock(result.durationMs)} · prabilo {result.speakerCount}
-                    {saved.expectedCount ? ` iš ${saved.expectedCount}` : ""}
+                    {saved.expectedCount > 0 ? ` iš ${saved.expectedCount}` : ""}
                   </CardDescription>
                 </div>
 

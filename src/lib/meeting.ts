@@ -149,6 +149,8 @@ export function toMarkdown(
 
   if (expectedCount > 0) {
     lines.push(`Dalyvių skaičius: ${expectedCount}. Prabilo: ${result.speakerCount}.`);
+  } else {
+    lines.push(`Dalyvių skaičius: nežinomas. Prabilo: ${result.speakerCount}.`);
   }
   const assignedNames = Object.entries(names)
     .filter(([, value]) => value.trim())
