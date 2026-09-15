@@ -41,6 +41,9 @@ function friendlyGeminiMessage(message: string): string {
   if (message.includes("not found") || message.includes("NOT_FOUND")) {
     return "Gemini modelis nerastas. Patikrinkite, ar raktas turi prieigą prie Gemini 3.6.";
   }
+  if (message.includes("high demand") || message.includes("RESOURCE_EXHAUSTED")) {
+    return "Gemini šiuo metu apkrautas. Palaukite minutę ir bandykite dar kartą.";
+  }
   return message;
 }
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { deleteMeeting, getMeeting, listMeetings, saveMeeting } from "@/lib/store";
-import { DEMO_MEETING, toMarkdown, withSpeakerCount, type MeetingResult, type SavedMeeting } from "@/lib/meeting";
+import { toMarkdown, withSpeakerCount, type MeetingResult, type SavedMeeting } from "@/lib/meeting";
 
 export const runtime = "nodejs";
 
@@ -9,27 +9,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json()) as Partial<SavedMeeting> & { demo?: boolean };
-  if (body.demo) {
-    const speakerNames = {
-      SPEAKER_1: "Alanas",
-      SPEAKER_2: "Rūta",
-      SPEAKER_3: "Tomas",
-      SPEAKER_4: "Justė",
-    };
-    const participants = ["Alanas", "Rūta", "Tomas", "Justė"];
-    const saved = await saveMeeting({
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-      participants,
-      expectedCount: 6,
-      speakerNames,
-      locked: false,
-      markdown: toMarkdown(DEMO_MEETING, speakerNames, participants, 6, false),
-      result: DEMO_MEETING,
-    });
-    return NextResponse.json(saved);
-  }
+  const body = (await request.json()) as Partial<SavedMeeting>;
 
   if (!body.result) {
     return NextResponse.json({ error: "Nėra susitikimo duomenų." }, { status: 400 });

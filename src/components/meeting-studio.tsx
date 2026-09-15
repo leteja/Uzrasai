@@ -12,7 +12,6 @@ import {
   Mic,
   Minus,
   Plus,
-  Sparkles,
   Square,
   Trash2,
   Users,
@@ -47,10 +46,10 @@ import {
 import { cn } from "@/lib/utils";
 
 const PROCESS_STEPS = [
-  "Siunčiamas valandos įrašas",
-  "Skiriami keli balsai",
-  "Rašomas viso pokalbio aprašymas",
-  "Saugomas Markdown archyve",
+  "Siunčiamas įrašas",
+  "Skiriami balsai",
+  "Rašomas aprašymas",
+  "Saugoma",
 ];
 
 const PARTICIPANTS_KEY = "uzrasai-participants";
@@ -60,6 +59,23 @@ const COUNT_KEY = "uzrasai-expected-count";
 function uniqueSpeakersFrom(result: MeetingResult): SpeakerId[] {
   const ids = [...new Set(result.segments.map((segment) => segment.speaker))];
   return ids.length > 0 ? ids : listSpeakers(result.speakerCount || 1);
+}
+
+function friendlyFetchError(message: string): string {
+  if (message === "Failed to fetch" || message.includes("NetworkError") || message.includes("Load failed")) {
+    return "Ryšys su serveriu nutrūko. Patikrinkite internetą ir bandykite dar kartą.";
+  }
+  return message;
+}
+
+async function readJsonResponse<T>(response: Response): Promise<T> {
+  const text = await response.text();
+  if (!text) throw new Error("Serveris negrąžino atsakymo.");
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error("Serveris grąžino netinkamą atsakymą.");
+  }
 }
 
 function peopleWord(count: number): string {
@@ -199,11 +215,10 @@ export function MeetingStudio() {
       if (liveCaption) form.append("liveCaption", liveCaption);
 
       const response = await fetch("/api/process", { method: "POST", body: form });
-      const payload = (await response.json()) as SavedMeeting & { error?: string; code?: string };
+      const payload = await readJsonResponse<SavedMeeting & { error?: string; code?: string }>(response);
       if (!response.ok) {
         if (payload.code === "NO_PROVIDER") {
-          await loadDemo();
-          setError("Įrašymas serveryje dar neįjungtas. Savininkas turi įrašyti vieną Gemini raktą.");
+          setError("Įrašymas serveryje dar neįjungtas. Savininkas turi įrašyti Gemini raktą.");
           return;
         }
         throw new Error(payload.error || "Nepavyko apdoroti įrašo.");
@@ -211,22 +226,11 @@ export function MeetingStudio() {
       setSaved(payload);
       await refreshArchive();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nepavyko apdoroti įrašo.");
+      const message = err instanceof Error ? err.message : "Nepavyko apdoroti įrašo.";
+      setError(friendlyFetchError(message));
     } finally {
       setProcessing(false);
     }
-  }
-
-  async function loadDemo() {
-    const response = await fetch("/api/meetings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ demo: true }),
-    });
-    const payload = (await response.json()) as SavedMeeting;
-    setSaved(payload);
-    setParticipants(["Alanas", "Rūta", "Tomas", "Justė"]);
-    await refreshArchive();
   }
 
   async function onToggleRecord() {
@@ -299,8 +303,9 @@ export function MeetingStudio() {
       if (!response.ok) throw new Error(payload.error || "Nepavyko išsiųsti.");
       setEmailState("sent");
     } catch (err) {
+      const message = err instanceof Error ? err.message : "Nepavyko išsiųsti.";
       setEmailState("error");
-      setEmailError(err instanceof Error ? err.message : "Nepavyko išsiųsti.");
+      setEmailError(friendlyFetchError(message));
     }
   }
 
@@ -319,10 +324,10 @@ export function MeetingStudio() {
         <div className="max-w-2xl space-y-3">
           <p className="text-xs font-medium tracking-[0.22em] text-speaker-one uppercase">Užrašai</p>
           <h1 className="font-heading text-4xl leading-[1.05] text-balance sm:text-5xl">
-            Start. Stop. Gaukite visą pokalbį ir sutrumpinimą.
+            Start. Stop. Gaukite užrašus.
           </h1>
           <p className="max-w-xl text-base text-muted-foreground">
-            Padėkite telefoną ar kompiuterį ant stalo, spauskite Start, kalbėkite, tada Stop. Savo Google rakto kurti nereikia.
+            Spauskite Start, kalbėkite, tada Stop.
           </p>
         </div>
         {status?.ready ? null : (
@@ -342,9 +347,7 @@ export function MeetingStudio() {
                 <Users className="size-4" />
                 Kiek žmonių kambaryje?
               </CardTitle>
-              <CardDescription>
-                Įrašykite skaičių. Nebūtina, kad visi kalbėtų — tylių žmonių sistema nepriskirs kaip kalbėtojų.
-              </CardDescription>
+              <CardDescription>Ne visi turi kalbėti — tylių nepriskirs.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex flex-wrap items-center gap-3">
@@ -385,10 +388,10 @@ export function MeetingStudio() {
                   </Button>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  {expectedCount} {peopleWord(expectedCount)} kambaryje, įskaitant tuos, kurie gali neprabilti
+                  {expectedCount} {peopleWord(expectedCount)} kambaryje
                 </p>
               </div>
-              <p className="text-sm font-medium">Vardai — nebūtina, ir ne visiems</p>
+              <p className="text-sm font-medium">Vardai — nebūtina</p>
               {participants.map((name, index) => (
                 <div key={index} className="flex gap-2">
                   <Input
@@ -420,9 +423,7 @@ export function MeetingStudio() {
           <Card className="bg-[linear-gradient(180deg,oklch(0.23_0.03_250),oklch(0.18_0.02_250))] text-white ring-white/10">
             <CardHeader>
               <CardTitle className="text-white">Įrašas kambaryje</CardTitle>
-              <CardDescription className="text-white/65">
-                Start → kalbėkite → Stop. Po to gausite visą pokalbį ir sutrumpinimą.
-              </CardDescription>
+              <CardDescription className="text-white/65">Start → kalbėkite → Stop.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="rounded-2xl bg-black/25 px-3 py-4 ring-1 ring-white/10">
@@ -458,7 +459,7 @@ export function MeetingStudio() {
                 <div className="text-center">
                   <p className="text-sm font-medium text-white">{recorder.isRecording ? "Stop" : "Start"}</p>
                   <p className="text-xs text-white/55">
-                    {recorder.isRecording ? "Stabdyti, transkribuoti ir išsaugoti" : "Mikrofonas — iki 70 minučių"}
+                    {recorder.isRecording ? "Stabdyti ir apdoroti" : "Iki 70 min."}
                   </p>
                 </div>
               </div>
@@ -494,15 +495,6 @@ export function MeetingStudio() {
                     }}
                   />
                 </label>
-                <Button
-                  variant="ghost"
-                  className="text-white hover:bg-white/10 hover:text-white"
-                  onClick={() => void loadDemo()}
-                  disabled={processing || recorder.isRecording}
-                >
-                  <Sparkles className="size-4" />
-                  Pavyzdinis susitikimas
-                </Button>
               </div>
             </CardContent>
           </Card>
@@ -521,7 +513,6 @@ export function MeetingStudio() {
             <Card>
               <CardHeader>
                 <CardTitle>Išsaugoti susitikimai</CardTitle>
-                <CardDescription>Visas pokalbis ir Markdown lieka šiame kompiuteryje aplanke data/meetings.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
                 {archive.map((item) => (
@@ -549,9 +540,7 @@ export function MeetingStudio() {
             <Card>
               <CardHeader>
                 <CardTitle>Dar nėra užrašų</CardTitle>
-                <CardDescription>
-                  Suveskite, kiek žmonių sėdi kambaryje — nebūtina, kad visi kalbėtų. Padėkite mikrofoną ant stalo, spauskite Start. Po Stop čia atsiras visas pokalbis ir aprašymas.
-                </CardDescription>
+                <CardDescription>Spauskite Start ir pradėkite kalbėti.</CardDescription>
               </CardHeader>
             </Card>
           ) : null}
@@ -563,14 +552,12 @@ export function MeetingStudio() {
                   <CardTitle className="font-heading text-2xl">{result.summary.title}</CardTitle>
                   <CardDescription>
                     {formatClock(result.durationMs)} · prabilo {result.speakerCount}
-                    {saved.expectedCount ? ` iš ${saved.expectedCount} kambaryje` : ""} ·{" "}
-                    {result.provider === "demo" ? "pavyzdys" : result.provider === "gemini" ? "Gemini" : "Groq"}
+                    {saved.expectedCount ? ` iš ${saved.expectedCount}` : ""}
                   </CardDescription>
                 </div>
-                {result.note ? <p className="text-xs text-muted-foreground">{result.note}</p> : null}
 
                 <div className="space-y-2">
-                  <p className="text-sm font-medium">Priskirkite balsus vardams (garsiai sakyti nereikia)</p>
+                  <p className="text-sm font-medium">Priskirkite balsus vardams</p>
                   <div className="grid gap-3 sm:grid-cols-2">
                     {speakers.map((speaker) => {
                       const tone = speakerTone(speaker);
@@ -617,11 +604,6 @@ export function MeetingStudio() {
                   </Button>
                 </div>
                 {emailError ? <p className="text-xs text-destructive">{emailError}</p> : null}
-                {!status?.resend ? (
-                  <p className="text-xs text-muted-foreground">
-                    Kad laiškas išeitų, 3 žingsnyje į .env.local įrašykite RESEND_API_KEY. Be to galite parsisiųsti Markdown.
-                  </p>
-                ) : null}
 
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={() => void copyMarkdown()}>

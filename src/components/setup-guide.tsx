@@ -96,7 +96,7 @@ EMAIL_TO=jusu@pastas.lt`}</pre>
             <KeyRound />
             <AlertTitle>Kol raktas neįrašytas serveryje</AlertTitle>
             <AlertDescription>
-              Lankytojai savo rakto nekuria. Užtenka šio vieno rakto serveryje. Kol jo nėra, galite spausti „Pavyzdinis susitikimas“.
+              Lankytojai savo rakto nekuria. Užtenka vieno rakto serveryje.
             </AlertDescription>
           </Alert>
       </CardContent>

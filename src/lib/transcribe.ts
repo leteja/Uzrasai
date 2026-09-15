@@ -55,6 +55,18 @@ function emptySummary(): MeetingSummary {
   };
 }
 
+function fallbackSummary(segments: MeetingSegment[]): MeetingSummary {
+  const text = transcriptFromSegments(segments);
+  const firstLine = segments[0]?.text.trim() || "Susitikimo užrašai";
+  const title = firstLine.length > 60 ? `${firstLine.slice(0, 57)}…` : firstLine;
+  return {
+    title: title || "Susitikimo užrašai",
+    narrative: text,
+    decisions: [],
+    nextSteps: [],
+  };
+}
+
 function parseSummary(raw: string): MeetingSummary {
   try {
     const jsonStart = raw.indexOf("{");
@@ -149,6 +161,7 @@ function extractGeminiTurns(response: {
       parts?: Array<{
         text?: string;
         audioTranscription?: {
+          text?: string;
           speakerLabel?: string;
           words?: Array<{ word?: string; startOffset?: string; endOffset?: string }>;
         };
@@ -163,7 +176,11 @@ function extractGeminiTurns(response: {
       const transcription = part.audioTranscription;
       if (transcription) {
         const words = transcription.words ?? [];
-        const text = words.map((word) => word.word ?? "").join(" ").trim() || part.text?.trim() || "";
+        const text =
+          transcription.text?.trim() ||
+          words.map((word) => word.word ?? "").join(" ").trim() ||
+          part.text?.trim() ||
+          "";
         const startMs = parseOffsetMs(words[0]?.startOffset);
         const endMs = parseOffsetMs(words[words.length - 1]?.endOffset);
         raw.push({
@@ -200,6 +217,7 @@ type GeminiRestResponse = {
       parts?: Array<{
         text?: string;
         audioTranscription?: {
+          text?: string;
           speakerLabel?: string;
           words?: Array<{ word?: string; startOffset?: string; endOffset?: string }>;
         };
@@ -450,27 +468,29 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
   const mp3 = await toMp3(input.buffer, input.mimeType);
   const chunks = await splitAudioChunks(mp3.buffer, mp3.mimeType, input.durationMs);
 
-  try {
-    const transcribedChunks: MeetingSegment[][] = [];
-    for (const chunk of chunks) {
-      const transcribed = await transcribeWithGeminiRest(apiKey, {
-        mimeType: chunk.mimeType,
-        data: chunk.buffer.toString("base64"),
-      });
-      const segments = extractGeminiTurns(transcribed).map((segment) => ({
-        ...segment,
-        startMs: segment.startMs + chunk.offsetMs,
-        endMs: segment.endMs + chunk.offsetMs,
-      }));
-      if (segments.length > 0) transcribedChunks.push(segments);
-    }
+  const transcribedChunks: MeetingSegment[][] = [];
+  for (const chunk of chunks) {
+    const transcribed = await transcribeWithGeminiRest(apiKey, {
+      mimeType: chunk.mimeType,
+      data: chunk.buffer.toString("base64"),
+    });
+    const segments = extractGeminiTurns(transcribed).map((segment) => ({
+      ...segment,
+      startMs: segment.startMs + chunk.offsetMs,
+      endMs: segment.endMs + chunk.offsetMs,
+    }));
+    if (segments.length > 0) transcribedChunks.push(segments);
+  }
 
-    if (transcribedChunks.length === 0) {
-      throw new Error("Tuščia transkripcija.");
-    }
-
+  if (transcribedChunks.length > 0) {
     const segments = await unifyChunkSpeakers(ai, transcribedChunks);
-    const summary = await summarizeWithGemini(ai, segments, input.participants, input.expectedCount);
+    let summary: MeetingSummary;
+    try {
+      summary = await summarizeWithGemini(ai, segments, input.participants, input.expectedCount);
+    } catch (error) {
+      console.warn("Santraukos generavimas nepavyko, naudojamas transkriptas:", error);
+      summary = fallbackSummary(segments);
+    }
     return {
       segments,
       summary,
@@ -483,13 +503,13 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
           ? "Ilgas įrašas padalytas į dalis, kad balsai būtų skiriami visą valandą."
           : undefined,
     };
-  } catch (error) {
-    console.warn("Gemini Transcribe nepavyko, bandoma Flash su garsu:", error);
-    return processWithGeminiFlash(ai, input, {
-      mimeType: mp3.mimeType,
-      data: mp3.buffer.toString("base64"),
-    });
   }
+
+  console.warn("Gemini Transcribe negrąžino teksto, bandoma Flash su garsu.");
+  return processWithGeminiFlash(ai, input, {
+    mimeType: mp3.mimeType,
+    data: mp3.buffer.toString("base64"),
+  });
 }
 
 async function processWithGroq(input: AudioInput): Promise<MeetingResult> {
