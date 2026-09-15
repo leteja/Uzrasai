@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Check, Copy, Lock, LockOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,8 @@ import {
   speakerName,
   speakerTone,
   toMarkdown,
+  toSummaryCopyText,
+  toTranscriptCopyText,
   uniqueSpeakerIds,
   withSpeakerCount,
 } from "@/lib/meeting";
@@ -28,19 +31,15 @@ function speakerChoices(saved: SavedMeeting): SpeakerId[] {
 
 export function ProtocolDocument({
   saved,
-  nameOptions,
-  copied,
   onUpdate,
   onLock,
-  onCopy,
 }: {
   saved: SavedMeeting;
-  nameOptions: string[];
-  copied: boolean;
   onUpdate: (next: SavedMeeting) => void;
   onLock: () => void;
-  onCopy: () => void;
 }) {
+  const [copiedSummary, setCopiedSummary] = useState(false);
+  const [copiedTranscript, setCopiedTranscript] = useState(false);
   const locked = saved.locked;
   const names = saved.speakerNames;
   const speakers = uniqueSpeakerIds(saved.result.segments);
@@ -88,6 +87,18 @@ export function ProtocolDocument({
     });
   }
 
+  async function copySummary() {
+    await navigator.clipboard.writeText(toSummaryCopyText(result, saved.createdAt));
+    setCopiedSummary(true);
+    window.setTimeout(() => setCopiedSummary(false), 1600);
+  }
+
+  async function copyTranscript() {
+    await navigator.clipboard.writeText(toTranscriptCopyText(result, names, saved.createdAt));
+    setCopiedTranscript(true);
+    window.setTimeout(() => setCopiedTranscript(false), 1600);
+  }
+
   return (
     <section className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -109,14 +120,18 @@ export function ProtocolDocument({
           )}
           <p className="text-xs text-muted-foreground">
             Prabilo {result.speakerCount}
-            {saved.expectedCount ? ` iš ${saved.expectedCount}` : ""} kambaryje
-            {locked ? " · keisti negalima" : " · žodžius ir kalbėtojus galima taisyti"}
+            {saved.expectedCount > 0 ? ` iš ${saved.expectedCount}` : ""}
+            {locked ? " · keisti negalima" : " · galite taisyti raides ir priskirti vardus"}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => void onCopy()}>
-            {copied ? <Check /> : <Copy />}
-            Kopijuoti
+          <Button variant="outline" onClick={() => void copySummary()}>
+            {copiedSummary ? <Check /> : <Copy />}
+            Kopijuoti tekstą
+          </Button>
+          <Button variant="outline" onClick={() => void copyTranscript()}>
+            {copiedTranscript ? <Check /> : <Copy />}
+            Kopijuoti visą pokalbį
           </Button>
           {locked ? (
             <Button variant="outline" disabled>
@@ -134,31 +149,25 @@ export function ProtocolDocument({
 
       <div className="space-y-2">
         <p className="text-sm font-medium">Vardai</p>
-        <p className="text-xs text-muted-foreground">Jei ne visi paminėjo, geriausia nė vienam neduoti.</p>
+        <p className="text-xs text-muted-foreground">
+          Priskirkite vardą tik tiems, kurie patys prisistatė. Tinka ir pravardė (direktorius, bosas).
+        </p>
         <div className="grid gap-2 sm:grid-cols-2">
-          {speakers.map((speaker) => {
-            return (
-              <div key={speaker} className="space-y-1">
-                <Label htmlFor={`name-${speaker}`} className="text-xs">
-                  {defaultSpeakerLabel(speaker)}
-                </Label>
-                <Input
-                  id={`name-${speaker}`}
-                  list="protocol-names"
-                  disabled={locked}
-                  placeholder="Vardas"
-                  value={names[speaker] ?? ""}
-                  onChange={(event) => patchName(speaker, event.target.value)}
-                />
-              </div>
-            );
-          })}
-        </div>
-        <datalist id="protocol-names">
-          {nameOptions.map((name) => (
-            <option key={name} value={name} />
+          {speakers.map((speaker) => (
+            <div key={speaker} className="space-y-1">
+              <Label htmlFor={`name-${speaker}`} className="text-xs">
+                {defaultSpeakerLabel(speaker)}
+              </Label>
+              <Input
+                id={`name-${speaker}`}
+                disabled={locked}
+                placeholder="Vardas ar pravardė"
+                value={names[speaker] ?? ""}
+                onChange={(event) => patchName(speaker, event.target.value)}
+              />
+            </div>
           ))}
-        </datalist>
+        </div>
       </div>
 
       <Tabs defaultValue="summary">

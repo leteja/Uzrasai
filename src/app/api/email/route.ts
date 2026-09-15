@@ -2,6 +2,7 @@ import { Resend } from "resend";
 import { NextResponse } from "next/server";
 import { getEmailFrom, getResendKey } from "@/lib/env";
 import { getMeeting } from "@/lib/store";
+import { toSummaryCopyText, toTranscriptCopyText } from "@/lib/meeting";
 
 export const runtime = "nodejs";
 
@@ -65,11 +66,11 @@ export async function POST(request: Request) {
     to: recipients,
     subject: `Susitikimo užrašai: ${meeting.result.summary.title}`,
     html,
-    text: meeting.markdown,
+    text: toSummaryCopyText(meeting.result, meeting.createdAt),
     attachments: [
       {
-        filename: "susitikimas.md",
-        content: Buffer.from(meeting.markdown),
+        filename: "pokalbis.txt",
+        content: Buffer.from(toTranscriptCopyText(meeting.result, meeting.speakerNames, meeting.createdAt), "utf-8"),
       },
     ],
   });

@@ -131,6 +131,40 @@ export function withSpeakerCount(result: MeetingResult): MeetingResult {
   return { ...result, speakerCount: uniqueSpeakerIds(result.segments).length };
 }
 
+export function toSummaryCopyText(result: MeetingResult, createdAt: string): string {
+  const date = new Date(createdAt).toLocaleString("lt-LT");
+  const lines = [date, "", result.summary.narrative.trim()];
+
+  const decisions = result.summary.decisions.map((item) => item.trim()).filter(Boolean);
+  if (decisions.length > 0) {
+    lines.push("", ...decisions);
+  }
+
+  const nextSteps = result.summary.nextSteps.map((item) => item.trim()).filter(Boolean);
+  if (nextSteps.length > 0) {
+    lines.push("", ...nextSteps);
+  }
+
+  return lines.join("\n").trim();
+}
+
+export function toTranscriptCopyText(
+  result: MeetingResult,
+  names: Record<string, string>,
+  createdAt: string
+): string {
+  const date = new Date(createdAt).toLocaleString("lt-LT");
+  const lines = [date, ""];
+
+  for (const segment of result.segments) {
+    const name = names[segment.speaker]?.trim();
+    const label = name || segment.speaker;
+    lines.push(`${label}: ${segment.text}`);
+  }
+
+  return lines.join("\n").trim();
+}
+
 export function toMarkdown(
   result: MeetingResult,
   names: Record<string, string>,
@@ -150,7 +184,7 @@ export function toMarkdown(
   if (expectedCount > 0) {
     lines.push(`Dalyvių skaičius: ${expectedCount}. Prabilo: ${result.speakerCount}.`);
   } else {
-    lines.push(`Dalyvių skaičius: nežinomas. Prabilo: ${result.speakerCount}.`);
+    lines.push(`Dalyvių skaičius: nepateikta. Prabilo: ${result.speakerCount}.`);
   }
   const assignedNames = Object.entries(names)
     .filter(([, value]) => value.trim())

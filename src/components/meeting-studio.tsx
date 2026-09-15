@@ -3,9 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
-  Check,
-  Copy,
-  Download,
   FileAudio,
   Loader2,
   Mail,
@@ -23,9 +20,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Waveform } from "@/components/waveform";
 import { SetupGuide } from "@/components/setup-guide";
+import { ProtocolDocument } from "@/components/protocol-document";
 import { useAudioRecorder } from "@/hooks/use-audio-recorder";
 import { useLiveCaptions } from "@/hooks/use-live-captions";
 import {
@@ -34,9 +31,6 @@ import {
   type ProviderStatus,
   type SavedMeeting,
   formatClock,
-  formatTimestamp,
-  speakerName,
-  speakerTone,
 } from "@/lib/meeting";
 import { cn } from "@/lib/utils";
 
@@ -85,15 +79,14 @@ export function MeetingStudio() {
   const [archive, setArchive] = useState<MeetingListItem[]>([]);
   const [expectedCount, setExpectedCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [emailTo, setEmailTo] = useState("");
   const [emailState, setEmailState] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [emailError, setEmailError] = useState<string | null>(null);
   const autoStopped = useRef(false);
+  const saveTimer = useRef<number | null>(null);
   const stopNowRef = useRef<(() => Promise<void>) | null>(null);
 
   const result = saved?.result ?? null;
-  const names = saved?.speakerNames ?? {};
 
   useEffect(() => {
     const storedCount = Number(localStorage.getItem(COUNT_KEY));
@@ -144,6 +137,33 @@ export function MeetingStudio() {
   async function refreshArchive() {
     const response = await fetch("/api/meetings");
     if (response.ok) setArchive((await response.json()) as MeetingListItem[]);
+  }
+
+  function persistMeeting(next: SavedMeeting) {
+    setSaved(next);
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    const id = next.id;
+    saveTimer.current = window.setTimeout(() => {
+      void fetch("/api/meetings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          speakerNames: next.speakerNames,
+          result: next.result,
+        }),
+      }).then(() => refreshArchive());
+    }, 500);
+  }
+
+  async function lockMeeting() {
+    if (!saved || saved.locked) return;
+    const response = await fetch("/api/meetings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: saved.id, locked: true }),
+    });
+    if (response.ok) setSaved((await response.json()) as SavedMeeting);
   }
 
   async function processAudio(file: Blob, mimeType: string, durationMs: number, liveCaption?: string) {
@@ -215,24 +235,6 @@ export function MeetingStudio() {
     await fetch(`/api/meetings?id=${id}`, { method: "DELETE" });
     if (saved?.id === id) setSaved(null);
     await refreshArchive();
-  }
-
-  async function copyMarkdown() {
-    if (!saved) return;
-    await navigator.clipboard.writeText(saved.markdown);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
-  }
-
-  function downloadMarkdown() {
-    if (!saved) return;
-    const blob = new Blob([saved.markdown], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${saved.result.summary.title.replace(/[^\p{L}\p{N}]+/gu, "-").slice(0, 60)}.md`;
-    link.click();
-    URL.revokeObjectURL(url);
   }
 
   async function sendEmail() {
@@ -340,7 +342,7 @@ export function MeetingStudio() {
                   </Button>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  {expectedCount === null ? "Nežinoma" : `${expectedCount} ${peopleWord(expectedCount)}`}
+                  {expectedCount === null ? "Nepateikta" : `${expectedCount} ${peopleWord(expectedCount)}`}
                 </p>
               </div>
             </CardContent>
@@ -502,69 +504,13 @@ export function MeetingStudio() {
                   </Button>
                 </div>
                 {emailError ? <p className="text-xs text-destructive">{emailError}</p> : null}
-
-                <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" onClick={() => void copyMarkdown()}>
-                    {copied ? <Check /> : <Copy />}
-                    Kopijuoti Markdown
-                  </Button>
-                  <Button size="sm" onClick={downloadMarkdown}>
-                    <Download />
-                    Parsisiųsti .md
-                  </Button>
-                </div>
               </CardHeader>
               <CardContent>
-                <Tabs defaultValue="summary">
-                  <TabsList>
-                    <TabsTrigger value="summary">Aprašymas</TabsTrigger>
-                    <TabsTrigger value="transcript">Visas pokalbis</TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="summary" className="space-y-4 pt-4">
-                    <div className="font-heading text-base leading-8 whitespace-pre-wrap">{result.summary.narrative}</div>
-                    {result.summary.decisions.length > 0 ? (
-                      <div>
-                        <h3 className="mb-2 text-sm font-medium">Nutarimai</h3>
-                        <ul className="list-disc space-y-1 pl-5 text-sm">
-                          {result.summary.decisions.map((item) => (
-                            <li key={item}>{item}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-                    {result.summary.nextSteps.length > 0 ? (
-                      <div>
-                        <h3 className="mb-2 text-sm font-medium">Tolesni žingsniai</h3>
-                        <ul className="list-disc space-y-1 pl-5 text-sm">
-                          {result.summary.nextSteps.map((item) => (
-                            <li key={item}>{item}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-                  </TabsContent>
-                  <TabsContent value="transcript" className="space-y-3 pt-4">
-                    {result.segments.map((segment, index) => {
-                      const tone = speakerTone(segment.speaker);
-                      return (
-                        <article key={`${segment.startMs}-${index}`} className="flex gap-3">
-                          <span className="mt-1 w-12 shrink-0 font-mono text-[11px] text-muted-foreground">
-                            {formatTimestamp(segment.startMs)}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <span
-                              className="mb-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-black/5"
-                              style={{ background: tone.bg, color: tone.fg }}
-                            >
-                              {speakerName(segment.speaker, names)}
-                            </span>
-                            <p className="text-sm leading-6">{segment.text}</p>
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </TabsContent>
-                </Tabs>
+                <ProtocolDocument
+                  saved={saved}
+                  onUpdate={persistMeeting}
+                  onLock={() => void lockMeeting()}
+                />
               </CardContent>
             </Card>
           ) : null}
