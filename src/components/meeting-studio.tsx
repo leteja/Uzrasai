@@ -94,24 +94,8 @@ export function MeetingStudio() {
   const [processStep, setProcessStep] = useState(0);
   const [saved, setSaved] = useState<SavedMeeting | null>(null);
   const [archive, setArchive] = useState<MeetingListItem[]>([]);
-  const [expectedCount, setExpectedCount] = useState(() => {
-    if (typeof window === "undefined") return 6;
-    const stored = Number(localStorage.getItem(COUNT_KEY));
-    return Number.isFinite(stored) && stored >= 1 ? Math.min(20, stored) : 6;
-  });
-  const [participants, setParticipants] = useState<string[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const stored = localStorage.getItem(PARTICIPANTS_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored) as string[];
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch {
-      // ignore
-    }
-    return [];
-  });
+  const [expectedCount, setExpectedCount] = useState(6);
+  const [participants, setParticipants] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [emailTo, setEmailTo] = useState("");
@@ -125,6 +109,20 @@ export function MeetingStudio() {
   const names = saved?.speakerNames ?? {};
 
   useEffect(() => {
+    const storedCount = Number(localStorage.getItem(COUNT_KEY));
+    if (Number.isFinite(storedCount) && storedCount >= 1) {
+      setExpectedCount(Math.min(20, storedCount));
+    }
+    try {
+      const storedParticipants = localStorage.getItem(PARTICIPANTS_KEY);
+      if (storedParticipants) {
+        const parsed = JSON.parse(storedParticipants) as string[];
+        if (Array.isArray(parsed)) setParticipants(parsed);
+      }
+    } catch {
+      // ignore
+    }
+
     void fetch("/api/status")
       .then((response) => response.json())
       .then((data: ProviderStatus) => {

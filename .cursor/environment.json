@@ -1,0 +1,9 @@
+{
+  "terminals": [
+    {
+      "name": "dev",
+      "command": "npm run dev"
+    }
+  ],
+  "ports": [43124]
+}
