@@ -86,7 +86,8 @@ Po ~2 min. gausite nuorodą, pvz. `https://uzrasai.vercel.app`.
 ### Kas vyksta automatiškai
 
 - Kiekvienas `git push` į `main` → Vercel perbuildina svetainę.
-- GitHub Actions (`.github/workflows/ci.yml`) paleidžia `lint` ir `build` kiekvienam push.
+
+> Jei norite GitHub Actions CI, tokenui reikia `workflow` scope. Kitaip push'inkite be `.github/workflows/` failų.
 
 ### Dažnos problemos
 
