@@ -10,6 +10,7 @@ import {
   Loader2,
   Mail,
   Mic,
+  Minus,
   Plus,
   Sparkles,
   Square,
@@ -54,10 +55,19 @@ const PROCESS_STEPS = [
 
 const PARTICIPANTS_KEY = "uzrasai-participants";
 const EMAIL_KEY = "uzrasai-email";
+const COUNT_KEY = "uzrasai-expected-count";
 
 function uniqueSpeakersFrom(result: MeetingResult): SpeakerId[] {
   const ids = [...new Set(result.segments.map((segment) => segment.speaker))];
   return ids.length > 0 ? ids : listSpeakers(result.speakerCount || 1);
+}
+
+function peopleWord(count: number): string {
+  const mod100 = count % 100;
+  const mod10 = count % 10;
+  if (mod10 === 1 && mod100 !== 11) return "žmogus";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "žmonės";
+  return "žmonių";
 }
 
 export function MeetingStudio() {
@@ -68,18 +78,23 @@ export function MeetingStudio() {
   const [processStep, setProcessStep] = useState(0);
   const [saved, setSaved] = useState<SavedMeeting | null>(null);
   const [archive, setArchive] = useState<MeetingListItem[]>([]);
+  const [expectedCount, setExpectedCount] = useState(() => {
+    if (typeof window === "undefined") return 6;
+    const stored = Number(localStorage.getItem(COUNT_KEY));
+    return Number.isFinite(stored) && stored >= 1 ? Math.min(20, stored) : 6;
+  });
   const [participants, setParticipants] = useState<string[]>(() => {
-    if (typeof window === "undefined") return ["", "", ""];
+    if (typeof window === "undefined") return [];
     try {
       const stored = localStorage.getItem(PARTICIPANTS_KEY);
       if (stored) {
         const parsed = JSON.parse(stored) as string[];
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch {
       // ignore
     }
-    return ["", "", ""];
+    return [];
   });
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -118,6 +133,10 @@ export function MeetingStudio() {
   }, [participants]);
 
   useEffect(() => {
+    localStorage.setItem(COUNT_KEY, String(expectedCount));
+  }, [expectedCount]);
+
+  useEffect(() => {
     if (emailTo) localStorage.setItem(EMAIL_KEY, emailTo);
   }, [emailTo]);
 
@@ -147,7 +166,7 @@ export function MeetingStudio() {
     setSaved({
       ...saved,
       speakerNames: nextNames,
-      markdown: toMarkdown(saved.result, nextNames, saved.participants),
+      markdown: toMarkdown(saved.result, nextNames, saved.participants, saved.expectedCount),
     });
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     const id = saved.id;
@@ -176,6 +195,7 @@ export function MeetingStudio() {
       form.append("mimeType", mimeType);
       form.append("durationMs", String(durationMs));
       form.append("participants", JSON.stringify(cleanParticipants));
+      form.append("expectedCount", String(expectedCount));
       if (liveCaption) form.append("liveCaption", liveCaption);
 
       const response = await fetch("/api/process", { method: "POST", body: form });
@@ -320,13 +340,55 @@ export function MeetingStudio() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Users className="size-4" />
-                Dalyvių vardai — nebūtina
+                Kiek žmonių kambaryje?
               </CardTitle>
               <CardDescription>
-                Galite palikti tuščia ir iškart spausti Start. Vardus priskirsite po įrašo, be garsaus minėjimo.
+                Įrašykite skaičių. Nebūtina, kad visi kalbėtų — tylių žmonių sistema nepriskirs kaip kalbėtojų.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2">
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    aria-label="Mažiau žmonių"
+                    disabled={expectedCount <= 1}
+                    onClick={() => setExpectedCount((count) => Math.max(1, count - 1))}
+                  >
+                    <Minus />
+                  </Button>
+                  <Input
+                    id="expected-count"
+                    type="number"
+                    min={1}
+                    max={20}
+                    inputMode="numeric"
+                    className="w-20 text-center"
+                    value={expectedCount}
+                    onChange={(event) => {
+                      const value = Number(event.target.value);
+                      if (!Number.isFinite(value)) return;
+                      setExpectedCount(Math.min(20, Math.max(1, Math.round(value))));
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    aria-label="Daugiau žmonių"
+                    disabled={expectedCount >= 20}
+                    onClick={() => setExpectedCount((count) => Math.min(20, count + 1))}
+                  >
+                    <Plus />
+                  </Button>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {expectedCount} {peopleWord(expectedCount)} kambaryje, įskaitant tuos, kurie gali neprabilti
+                </p>
+              </div>
+              <p className="text-sm font-medium">Vardai — nebūtina, ir ne visiems</p>
               {participants.map((name, index) => (
                 <div key={index} className="flex gap-2">
                   <Input
@@ -341,7 +403,6 @@ export function MeetingStudio() {
                     size="icon"
                     aria-label="Pašalinti dalyvį"
                     onClick={() => setParticipants((current) => current.filter((_, i) => i !== index))}
-                    disabled={participants.length <= 1}
                   >
                     <Trash2 />
                   </Button>
@@ -489,7 +550,7 @@ export function MeetingStudio() {
               <CardHeader>
                 <CardTitle>Dar nėra užrašų</CardTitle>
                 <CardDescription>
-                  Suveskite dalyvius, padėkite mikrofoną ant stalo, spauskite Start. Po Stop čia atsiras visas pokalbis ir aprašymas.
+                  Suveskite, kiek žmonių sėdi kambaryje — nebūtina, kad visi kalbėtų. Padėkite mikrofoną ant stalo, spauskite Start. Po Stop čia atsiras visas pokalbis ir aprašymas.
                 </CardDescription>
               </CardHeader>
             </Card>
@@ -501,8 +562,8 @@ export function MeetingStudio() {
                 <div>
                   <CardTitle className="font-heading text-2xl">{result.summary.title}</CardTitle>
                   <CardDescription>
-                    {formatClock(result.durationMs)} · {result.speakerCount}{" "}
-                    {result.speakerCount === 1 ? "balsas" : "balsai"} ·{" "}
+                    {formatClock(result.durationMs)} · prabilo {result.speakerCount}
+                    {saved.expectedCount ? ` iš ${saved.expectedCount} kambaryje` : ""} ·{" "}
                     {result.provider === "demo" ? "pavyzdys" : result.provider === "gemini" ? "Gemini" : "Groq"}
                   </CardDescription>
                 </div>

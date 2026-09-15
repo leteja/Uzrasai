@@ -32,6 +32,7 @@ export type SavedMeeting = {
   id: string;
   createdAt: string;
   participants: string[];
+  expectedCount: number;
   speakerNames: Record<string, string>;
   markdown: string;
   result: MeetingResult;
@@ -118,8 +119,14 @@ export function speakerName(id: SpeakerId | string, names: Record<string, string
   return names[id]?.trim() || defaultSpeakerLabel(id);
 }
 
-export function toMarkdown(result: MeetingResult, names: Record<string, string>, participants: string[] = []): string {
+export function toMarkdown(
+  result: MeetingResult,
+  names: Record<string, string>,
+  participants: string[] = [],
+  expectedCount = 0
+): string {
   const date = new Date().toLocaleString("lt-LT");
+  const named = participants.filter(Boolean);
   const lines = [
     `# ${result.summary.title}`,
     "",
@@ -127,8 +134,11 @@ export function toMarkdown(result: MeetingResult, names: Record<string, string>,
     `Trukmė: ${formatClock(result.durationMs)}`,
   ];
 
-  if (participants.filter(Boolean).length > 0) {
-    lines.push(`Dalyviai: ${participants.filter(Boolean).join(", ")}`);
+  if (expectedCount > 0) {
+    lines.push(`Kambaryje žmonių: ${expectedCount}. Prabilo: ${result.speakerCount}.`);
+  }
+  if (named.length > 0) {
+    lines.push(`Žinomi vardai: ${named.join(", ")}`);
   }
 
   lines.push("", "## Susitikimo aprašymas", "", result.summary.narrative, "");

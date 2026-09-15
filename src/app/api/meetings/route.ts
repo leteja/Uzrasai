@@ -22,8 +22,9 @@ export async function POST(request: Request) {
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
       participants,
+      expectedCount: 6,
       speakerNames,
-      markdown: toMarkdown(DEMO_MEETING, speakerNames, participants),
+      markdown: toMarkdown(DEMO_MEETING, speakerNames, participants, 6),
       result: DEMO_MEETING,
     });
     return NextResponse.json(saved);
@@ -37,9 +38,15 @@ export async function POST(request: Request) {
     id: body.id || crypto.randomUUID(),
     createdAt: body.createdAt || new Date().toISOString(),
     participants: body.participants ?? [],
+    expectedCount: body.expectedCount ?? body.participants?.length ?? 1,
     speakerNames: body.speakerNames ?? {},
     result: body.result,
-    markdown: toMarkdown(body.result, body.speakerNames ?? {}, body.participants ?? []),
+    markdown: toMarkdown(
+      body.result,
+      body.speakerNames ?? {},
+      body.participants ?? [],
+      body.expectedCount ?? body.participants?.length ?? 1
+    ),
   };
   return NextResponse.json(await saveMeeting(meeting));
 }
@@ -55,7 +62,7 @@ export async function PUT(request: Request) {
     ...existing,
     speakerNames,
     participants,
-    markdown: toMarkdown(existing.result, speakerNames, participants),
+    markdown: toMarkdown(existing.result, speakerNames, participants, existing.expectedCount),
   });
   return NextResponse.json(saved);
 }

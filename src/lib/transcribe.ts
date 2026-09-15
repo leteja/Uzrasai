@@ -43,6 +43,7 @@ type AudioInput = {
   durationMs: number;
   liveCaption?: string;
   participants?: string[];
+  expectedCount?: number;
 };
 
 function emptySummary(): MeetingSummary {
@@ -130,11 +131,13 @@ function asGeminiMime(mimeType: string): string {
   return mimeType.split(";")[0] || "audio/webm";
 }
 
-function participantsHint(participants?: string[]): string {
+function attendeesHint(participants?: string[], expectedCount?: number): string {
   const names = (participants ?? []).map((name) => name.trim()).filter(Boolean);
-  if (names.length === 0) return "";
-  return `\nKambaryje dalyvauja (vardų NEREIKIA sakyti garsiai; tai tik sąrašas priskyrimui): ${names.join(", ")}.
-Balsus žymėk SPEAKER_1, SPEAKER_2, SPEAKER_3 ir t. t. Vardų į transkriptą neįrašinėk, nebent jie buvo ištarti.`;
+  const inRoom = Math.min(20, Math.max(expectedCount || 0, names.length, 1));
+  return `\nKambaryje sėdi ${inRoom} žmonių. Ne visi privalo kalbėti — jei kas nors visą laiką tyli, jo NĖRA transkripte ir jam neišgalvok replikų.
+Skirk tik tuos balsus, kurie GIRDĖTI. Kalbėtojų transkripte gali būti mažiau nei ${inRoom} (daugiausiai ${MAX_SPEAKERS}).
+${names.length ? `Žinomi vardai (nebūtina sakyti garsiai, ne visiems, ir ne visi turi būti priskirti): ${names.join(", ")}.` : "Vardų nėra — žymėk tik balsus, be išgalvotų vardų."}
+Balsus žymėk SPEAKER_1, SPEAKER_2, SPEAKER_3 ir t. t.`;
 }
 
 function extractGeminiTurns(response: {
@@ -207,47 +210,6 @@ async function transcribeWithGeminiRest(
   apiKey: string,
   inlineData: { mimeType: string; data: string }
 ): Promise<GeminiRestResponse> {
-  const interactions = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/interactions?key=${encodeURIComponent(apiKey)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: TRANSCRIBE_MODEL,
-        store: false,
-        input: [
-          {
-            type: "audio",
-            mime_type: inlineData.mimeType,
-            data: inlineData.data,
-          },
-        ],
-        generation_config: {
-          transcription_config: {
-            language_codes: ["lt-LT"],
-            mode: {
-              type: "verbatim",
-              diarization_mode: "speaker",
-              timestamp_granularities: ["word"],
-            },
-          },
-        },
-      }),
-    }
-  );
-
-  if (interactions.ok) {
-    const payload = (await interactions.json()) as GeminiRestResponse & {
-      output_text?: string;
-      outputs?: Array<{ text?: string }>;
-    };
-    if (payload.candidates?.length) return payload;
-    const text = payload.text || payload.output_text || payload.outputs?.map((item) => item.text ?? "").join("\n");
-    if (text?.trim()) {
-      return { text: text.trim(), candidates: payload.candidates };
-    }
-  }
-
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${TRANSCRIBE_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
     {
@@ -404,11 +366,12 @@ ${labeled}`
 async function summarizeWithGemini(
   ai: GoogleGenAI,
   segments: MeetingSegment[],
-  participants?: string[]
+  participants?: string[],
+  expectedCount?: number
 ): Promise<MeetingSummary> {
   const text = await geminiJsonText(
     ai,
-    `${SUMMARY_PROMPT}${participantsHint(participants)}\n\nPOKALBIS:\n${transcriptFromSegments(segments)}`
+    `${SUMMARY_PROMPT}${attendeesHint(participants, expectedCount)}\n\nPOKALBIS:\n${transcriptFromSegments(segments)}`
   );
   return parseSummary(text);
 }
@@ -422,15 +385,12 @@ async function processWithGeminiFlash(
     ? `\nNaršyklės gyvos antraštės (gali būti netikslios): ${input.liveCaption}`
     : "";
 
-  const mp3Mime = inlineData.mimeType.includes("mpeg") || inlineData.mimeType.includes("mp3") ? "audio/mp3" : "audio/mpeg";
-  const text = await geminiJsonText(ai, [
-    {
-      type: "text",
-      text: `Transkribuok šį lietuvišką susitikimo įrašą (gali trukti iki valandos, keli žmonės kambaryje).
+  const text = await geminiJsonText(ai, {
+    text: `Transkribuok šį lietuvišką susitikimo įrašą (gali trukti iki valandos, keli žmonės kambaryje).
 Atskirk balsus SPEAKER_1, SPEAKER_2, SPEAKER_3... iki SPEAKER_${MAX_SPEAKERS} pagal tai, kas kalba — ne pagal sakinių eilę, o pagal balsą.
 Jei girdėti tik vienas balsas, visus segmentus žymėk SPEAKER_1.
 Tada parašyk viso pokalbio aprašymą lietuviškai: sutrumpink, bet aprašyk viską, kas buvo pasakyta.
-${participantsHint(input.participants)}
+${attendeesHint(input.participants, input.expectedCount)}
 ${hint}
 
 Grąžink tik JSON:
@@ -443,13 +403,8 @@ Grąžink tik JSON:
     "nextSteps": []
   }
 }`,
-    },
-    {
-      type: "audio",
-      data: inlineData.data,
-      mime_type: mp3Mime,
-    },
-  ]);
+    audio: { mimeType: "audio/mp3", data: inlineData.data },
+  });
 
   const parsed = JSON.parse(text) as {
     segments?: Array<{ speaker?: string; text?: string; startMs?: number; endMs?: number }>;
@@ -513,7 +468,7 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
     }
 
     const segments = await unifyChunkSpeakers(ai, transcribedChunks);
-    const summary = await summarizeWithGemini(ai, segments, input.participants);
+    const summary = await summarizeWithGemini(ai, segments, input.participants, input.expectedCount);
     return {
       segments,
       summary,
@@ -569,9 +524,6 @@ async function processWithGroq(input: AudioInput): Promise<MeetingResult> {
   }
 
   const captionHint = input.liveCaption ? `\nPapildomos gyvos antraštės: ${input.liveCaption}` : "";
-  const expected = input.participants?.filter(Boolean).length
-    ? `Dalyvių sąraše ${input.participants.filter(Boolean).length} žmonės.`
-    : `Kambaryje gali būti iki ${MAX_SPEAKERS} kalbėtojų.`;
 
   const completion = await groq.chat.completions.create({
     model: "llama-3.3-70b-versatile",
@@ -581,10 +533,9 @@ async function processWithGroq(input: AudioInput): Promise<MeetingResult> {
       {
         role: "system",
         content: `Tu skiri kelių žmonių lietuvišką pokalbį ir rašai susitikimo aprašymą.
-Whisper transkripcija NETURI balsų žymių. Priskirk SPEAKER_1..SPEAKER_${MAX_SPEAKERS} pagal pokalbio eigą.
-${expected}
+Whisper transkripcija NETURI balsų žymių. Priskirk SPEAKER_1..SPEAKER_${MAX_SPEAKERS} tik tiems, kurie kalba.
 ${SUMMARY_PROMPT}
-${participantsHint(input.participants)}
+${attendeesHint(input.participants, input.expectedCount)}
 
 Papildomai JSON turi turėti segments masyvą su visomis Whisper atkarpomis:
 {"segments":[{"index":0,"speaker":"SPEAKER_1"}], "title":"...","narrative":"...","decisions":[],"nextSteps":[]}`,

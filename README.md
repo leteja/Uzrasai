@@ -7,9 +7,11 @@ Lankytojams **savo Google rakto kurti nereikia**. Vieną kartą raktą įrašo s
 ## Lankytojui
 
 1. Atidarykite svetainę.
-2. Leiskite mikrofoną.
-3. **Start**, kalbėkite, **Stop**.
-4. Palaukite. Gausite visą pokalbį ir sutrumpinimą. Vardus galite priskirti po to.
+2. Įrašykite, **kiek žmonių kambaryje**. Nebūtina, kad visi kalbėtų — tylintys nebus priskirti kaip kalbėtojai.
+3. Vardai nebūtini ir ne visiems.
+4. Leiskite mikrofoną.
+5. **Start**, kalbėkite, **Stop**.
+6. Palaukite. Gausite visą pokalbį ir sutrumpinimą. Vardus galite priskirti po to.
 
 ## Savininkui (vieną kartą, nemokamai)
 

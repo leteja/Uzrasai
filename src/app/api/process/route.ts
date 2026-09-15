@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { processMeetingAudio } from "@/lib/transcribe";
 import { saveMeeting } from "@/lib/store";
+import { publicGeminiError } from "@/lib/gemini";
 import { toMarkdown, type MeetingResult } from "@/lib/meeting";
 
 export const runtime = "nodejs";
@@ -33,6 +34,10 @@ export async function POST(request: Request) {
       participants = [];
     }
     participants = participants.map((name) => String(name).trim()).filter(Boolean);
+    const expectedCount = Math.min(
+      20,
+      Math.max(1, Number(form.get("expectedCount") || participants.length || 1))
+    );
 
     const buffer = Buffer.from(await audio.arrayBuffer());
     const extension = mimeType.includes("mp4") ? "m4a" : mimeType.includes("mpeg") ? "mp3" : "webm";
@@ -44,6 +49,7 @@ export async function POST(request: Request) {
       durationMs,
       liveCaption: liveCaption || undefined,
       participants,
+      expectedCount,
     });
 
     const speakerNames: Record<string, string> = {};
@@ -56,14 +62,15 @@ export async function POST(request: Request) {
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
       participants,
+      expectedCount,
       speakerNames,
-      markdown: toMarkdown(result, speakerNames, participants),
+      markdown: toMarkdown(result, speakerNames, participants, expectedCount),
       result,
     });
 
     return NextResponse.json(saved);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Nepavyko apdoroti įrašo.";
+    const message = publicGeminiError(error);
     const code = error && typeof error === "object" && "code" in error ? String(error.code) : undefined;
     const status = code === "NO_PROVIDER" ? 503 : 500;
     console.error("process meeting failed:", error);
