@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Barlow_Condensed, Geist, Geist_Mono } from "next/font/google";
+import { Geist, Newsreader } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -7,21 +7,16 @@ const geistSans = Geist({
   subsets: ["latin", "latin-ext"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const newsreader = Newsreader({
+  variable: "--font-newsreader",
   subsets: ["latin", "latin-ext"],
-});
-
-const wordmark = Barlow_Condensed({
-  variable: "--font-wordmark",
-  subsets: ["latin", "latin-ext"],
-  weight: ["600", "700"],
+  style: ["normal", "italic"],
 });
 
 export const metadata: Metadata = {
-  title: "Užrašai — susitikimų protokolas",
+  title: "Užrašai — susitikimų pokalbiai lietuviškai",
   description:
-    "Įrašykite kambario susitikimą, atskirkite kalbėtojus ir gaukite viso pokalbio aprašymą lietuvių kalba.",
+    "Įrašykite kambario susitikimą, atskirkite kelis kalbėtojus ir gaukite viso pokalbio aprašymą lietuvių kalba.",
 };
 
 export default function RootLayout({
@@ -30,8 +25,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="lt" className="dark">
-      <body className={`${geistSans.variable} ${geistMono.variable} ${wordmark.variable} antialiased`}>{children}</body>
+    <html lang="lt">
+      <body className={`${geistSans.variable} ${newsreader.variable} antialiased`}>
+        {children}
+      </body>
     </html>
   );
 }

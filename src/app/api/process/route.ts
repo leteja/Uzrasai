@@ -54,10 +54,6 @@ export async function POST(request: Request) {
     });
 
     const speakerNames: Record<string, string> = {};
-    const speakers = [...new Set(result.segments.map((segment) => segment.speaker))];
-    speakers.forEach((speaker, index) => {
-      speakerNames[speaker] = participants[index] || `Kalbėtojas ${index + 1}`;
-    });
 
     const saved = await saveMeeting({
       id: crypto.randomUUID(),

@@ -93,9 +93,9 @@ export function ProtocolDocument({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1 space-y-1">
           {locked ? (
-            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Užrakintas protokolas</p>
+            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Užrakinta</p>
           ) : (
-            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Taisykite klaidas, tada užrakinkite</p>
+            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Taisyti</p>
           )}
           {locked ? (
             <h2 className="text-xl font-medium tracking-tight text-balance">{result.summary.title}</h2>
@@ -116,7 +116,7 @@ export function ProtocolDocument({
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => void onCopy()}>
             {copied ? <Check /> : <Copy />}
-            Kopijuoti visą pokalbį ir sutrumpinimą
+            Kopijuoti
           </Button>
           {locked ? (
             <Button variant="outline" disabled>
@@ -132,24 +132,14 @@ export function ProtocolDocument({
         </div>
       </div>
 
-      {locked ? (
-        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-          Protokolas užrakintas, kad po įrašo neįsimaišytų netiksli informacija. Kopijuoti galima, taisyti — ne.
-        </p>
-      ) : (
-        <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-          Jei transkripcija suklydo, pakeiskite žodį arba priskirkite repliką kitam kalbėtojui. Užrakinus keisti nebebus galima.
-        </p>
-      )}
-
       <div className="space-y-2">
-        <p className="text-sm font-medium">Kalbėtojų vardai</p>
+        <p className="text-sm font-medium">Vardai</p>
+        <p className="text-xs text-muted-foreground">Jei ne visi paminėjo, geriausia nė vienam neduoti.</p>
         <div className="grid gap-2 sm:grid-cols-2">
           {speakers.map((speaker) => {
-            const tone = speakerTone(speaker);
             return (
               <div key={speaker} className="space-y-1">
-                <Label htmlFor={`name-${speaker}`} className="text-xs" style={{ color: tone.fg }}>
+                <Label htmlFor={`name-${speaker}`} className="text-xs">
                   {defaultSpeakerLabel(speaker)}
                 </Label>
                 <Input

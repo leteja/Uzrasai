@@ -8,8 +8,6 @@ import {
   Download,
   FileAudio,
   Loader2,
-  Lock,
-  LockOpen,
   Mail,
   Mic,
   Minus,
@@ -20,37 +18,49 @@ import {
   Users,
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { ProtocolDocument } from "@/components/protocol-document";
-import { LiveTranscript } from "@/components/live-transcript";
-import { SetupGuide } from "@/components/setup-guide";
+import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Waveform } from "@/components/waveform";
+import { SetupGuide } from "@/components/setup-guide";
 import { useAudioRecorder } from "@/hooks/use-audio-recorder";
 import { useLiveCaptions } from "@/hooks/use-live-captions";
 import {
   MAX_RECORDING_MS,
   type MeetingListItem,
+  type MeetingResult,
   type ProviderStatus,
   type SavedMeeting,
+  type SpeakerId,
+  defaultSpeakerLabel,
   formatClock,
+  formatTimestamp,
+  listSpeakers,
+  speakerName,
+  speakerTone,
   toMarkdown,
 } from "@/lib/meeting";
 import { cn } from "@/lib/utils";
 
 const PROCESS_STEPS = [
-  "Siunčiamas įrašas",
-  "Skiriami balsai",
-  "Rašomas sutrumpinimas",
-  "Saugomas protokolas",
+  "Siunčiamas valandos įrašas",
+  "Skiriami keli balsai",
+  "Rašomas viso pokalbio aprašymas",
+  "Saugomas Markdown archyve",
 ];
 
 const PARTICIPANTS_KEY = "uzrasai-participants";
 const EMAIL_KEY = "uzrasai-email";
 const COUNT_KEY = "uzrasai-expected-count";
-const LOCK_KEY = "uzrasai-lock-protocol";
+
+function uniqueSpeakersFrom(result: MeetingResult): SpeakerId[] {
+  const ids = [...new Set(result.segments.map((segment) => segment.speaker))];
+  return ids.length > 0 ? ids : listSpeakers(result.speakerCount || 1);
+}
 
 function peopleWord(count: number): string {
   const mod100 = count % 100;
@@ -86,10 +96,6 @@ export function MeetingStudio() {
     }
     return [];
   });
-  const [lockBeforeRecord, setLockBeforeRecord] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem(LOCK_KEY) === "true";
-  });
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [emailTo, setEmailTo] = useState("");
@@ -98,9 +104,9 @@ export function MeetingStudio() {
   const autoStopped = useRef(false);
   const saveTimer = useRef<number | null>(null);
   const stopNowRef = useRef<(() => Promise<void>) | null>(null);
-  const liveEndRef = useRef<HTMLDivElement | null>(null);
 
-  const busy = processing || recorder.isRecording || recorder.state === "requesting" || recorder.state === "stopping";
+  const result = saved?.result ?? null;
+  const names = saved?.speakerNames ?? {};
 
   useEffect(() => {
     void fetch("/api/status")
@@ -131,10 +137,6 @@ export function MeetingStudio() {
   }, [expectedCount]);
 
   useEffect(() => {
-    localStorage.setItem(LOCK_KEY, String(lockBeforeRecord));
-  }, [lockBeforeRecord]);
-
-  useEffect(() => {
     if (emailTo) localStorage.setItem(EMAIL_KEY, emailTo);
   }, [emailTo]);
 
@@ -152,11 +154,6 @@ export function MeetingStudio() {
     void stopNowRef.current?.();
   }, [recorder.elapsedMs, recorder.isRecording]);
 
-  useEffect(() => {
-    if (!recorder.isRecording) return;
-    liveEndRef.current?.scrollIntoView({ block: "end" });
-  }, [captions.utterances, captions.interim, recorder.isRecording]);
-
   async function refreshArchive() {
     const response = await fetch("/api/meetings");
     if (response.ok) setArchive((await response.json()) as MeetingListItem[]);
@@ -164,20 +161,24 @@ export function MeetingStudio() {
 
   const cleanParticipants = participants.map((name) => name.trim()).filter(Boolean);
 
-  function persistMeeting(next: SavedMeeting) {
-    if (saved?.locked) return;
-    setSaved(next);
+  function queueNameSave(nextNames: Record<string, string>) {
+    if (!saved) return;
+    setSaved({
+      ...saved,
+      speakerNames: nextNames,
+      markdown: toMarkdown(saved.result, nextNames, saved.participants, saved.expectedCount),
+    });
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    const id = saved.id;
+    const participantsNow = saved.participants;
     saveTimer.current = window.setTimeout(() => {
       void fetch("/api/meetings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          id: next.id,
-          speakerNames: next.speakerNames,
-          participants: next.participants,
-          result: next.result,
-          locked: next.locked,
+          id,
+          speakerNames: nextNames,
+          participants: participantsNow,
         }),
       }).then(() => refreshArchive());
     }, 500);
@@ -195,7 +196,6 @@ export function MeetingStudio() {
       form.append("durationMs", String(durationMs));
       form.append("participants", JSON.stringify(cleanParticipants));
       form.append("expectedCount", String(expectedCount));
-      form.append("locked", String(lockBeforeRecord));
       if (liveCaption) form.append("liveCaption", liveCaption);
 
       const response = await fetch("/api/process", { method: "POST", body: form });
@@ -243,7 +243,7 @@ export function MeetingStudio() {
     setError(null);
     captions.reset();
     await recorder.start();
-    captions.start(expectedCount);
+    captions.start();
   }
 
   stopNowRef.current = onToggleRecord;
@@ -267,7 +267,7 @@ export function MeetingStudio() {
     await refreshArchive();
   }
 
-  async function copyRecord() {
+  async function copyMarkdown() {
     if (!saved) return;
     await navigator.clipboard.writeText(saved.markdown);
     setCopied(true);
@@ -304,324 +304,391 @@ export function MeetingStudio() {
     }
   }
 
-  function lockSaved() {
-    if (!saved || saved.locked) return;
-    persistMeeting({
-      ...saved,
-      locked: true,
-      lockedAt: new Date().toISOString(),
-      markdown: toMarkdown(saved.result, saved.speakerNames, saved.participants, saved.expectedCount, true),
-    });
-  }
-
-  const displayError = error || recorder.error;
   const readyLabel = useMemo(() => {
-    if (!status) return "Kraunama";
-    if (status.ready) return "Paruošta";
-    return "Reikia rakto serveryje";
+    if (!status) return "Kraunama…";
+    if (status.ready) return "Galima įrašyti";
+    return "Savininkui reikia rakto serveryje";
   }, [status]);
 
+  const displayError = error || recorder.error;
+  const speakers = result ? uniqueSpeakersFrom(result) : [];
+
   return (
-    <div className="relative flex min-h-dvh flex-col">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -top-36 -left-28 size-[34rem] rounded-full bg-sky-400/30 blur-[110px]" />
-        <div className="absolute -top-24 -right-20 size-[26rem] rounded-full bg-amber-300/20 blur-[100px]" />
-        <div className="absolute right-1/4 bottom-[-8rem] size-[22rem] rounded-full bg-indigo-500/20 blur-[90px]" />
-        <div className="studio-grid absolute inset-0" />
-      </div>
-      <header className="sticky top-0 z-20 border-b border-white/10 bg-gradient-to-r from-[#0b1524]/88 via-[#121820]/72 to-[#1a160e]/80 backdrop-blur-md">
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-sky-300/70 to-amber-200/40" />
-        <div className="mx-auto flex min-h-16 max-w-[1600px] items-center justify-between gap-4 px-4 py-3">
-          <div className="min-w-0">
-            <h1 className="font-wordmark text-[1.65rem] leading-none font-semibold tracking-[0.42em] text-white uppercase sm:text-[1.9rem]">
-              Užrašai
-            </h1>
-            <p className="mt-1 hidden text-[10px] tracking-[0.28em] text-white/40 uppercase sm:block">Susitikimų protokolas</p>
-          </div>
-          <div className="flex items-center gap-4 text-xs text-white/55">
-            <p className="flex items-center gap-1.5 text-sm text-white/80">
-              <Users className="size-3.5 text-sky-300/80" />
-              <span className="font-medium tabular-nums text-white">{expectedCount}</span>
-              <span className="hidden sm:inline">{peopleWord(expectedCount)} kambaryje</span>
-            </p>
-            <span className="hidden h-4 w-px bg-gradient-to-b from-transparent via-white/30 to-transparent sm:block" />
-            <span className="hidden items-center gap-1.5 sm:inline-flex">
-              {lockBeforeRecord ? <Lock className="size-3.5" /> : <LockOpen className="size-3.5" />}
-              {lockBeforeRecord ? "Po įrašo užrakinti" : "Po įrašo taisyti"}
-            </span>
-            <span className="hidden md:inline">{readyLabel}</span>
-            <span className={cn("font-mono tabular-nums text-sm text-white", recorder.isRecording && "text-red-300")}>
-              {formatClock(recorder.elapsedMs)}
-            </span>
-          </div>
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:py-10">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="max-w-2xl space-y-3">
+          <p className="text-xs font-medium tracking-[0.22em] text-speaker-one uppercase">Užrašai</p>
+          <h1 className="font-heading text-4xl leading-[1.05] text-balance sm:text-5xl">
+            Start. Stop. Gaukite visą pokalbį ir sutrumpinimą.
+          </h1>
+          <p className="max-w-xl text-base text-muted-foreground">
+            Padėkite telefoną ar kompiuterį ant stalo, spauskite Start, kalbėkite, tada Stop. Savo Google rakto kurti nereikia.
+          </p>
         </div>
+        {status?.ready ? null : (
+          <Badge variant="outline" className="h-auto max-w-xs px-3 py-2 text-left text-xs leading-5 font-normal whitespace-normal">
+            {readyLabel}
+          </Badge>
+        )}
       </header>
 
-      <div className="relative z-10 mx-auto grid w-full max-w-[1600px] flex-1 lg:grid-cols-[240px_minmax(0,1fr)_260px]">
-        <aside className="relative order-2 space-y-6 px-4 py-6 lg:order-1 lg:after:absolute lg:after:top-10 lg:after:right-0 lg:after:bottom-10 lg:after:w-px lg:after:bg-gradient-to-b lg:after:from-sky-300/50 lg:after:via-white/15 lg:after:to-transparent">
-          <section className="space-y-3">
-            <div>
-              <h2 className="text-sm font-medium">Kambarys</h2>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Skaičius viršuje. Tylintys gali neprabilti.
-              </p>
-            </div>
-            <div className="flex items-center gap-1">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                aria-label="Mažiau žmonių"
-                disabled={busy || expectedCount <= 1}
-                onClick={() => setExpectedCount((count) => Math.max(1, count - 1))}
-              >
-                <Minus />
-              </Button>
-              <Input
-                id="expected-count"
-                type="number"
-                min={1}
-                max={20}
-                inputMode="numeric"
-                disabled={busy}
-                className="w-16 text-center"
-                value={expectedCount}
-                onChange={(event) => {
-                  const value = Number(event.target.value);
-                  if (!Number.isFinite(value)) return;
-                  setExpectedCount(Math.min(20, Math.max(1, Math.round(value))));
-                }}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                aria-label="Daugiau žmonių"
-                disabled={busy || expectedCount >= 20}
-                onClick={() => setExpectedCount((count) => Math.min(20, count + 1))}
-              >
-                <Plus />
-              </Button>
-            </div>
-          </section>
+      <SetupGuide status={status} />
 
-          <section className="space-y-2">
-            <h2 className="text-sm font-medium">Vardai</h2>
-            <p className="text-xs text-muted-foreground">Nebūtina ir ne visiems.</p>
-            {participants.map((name, index) => (
-              <div key={index} className="flex gap-1.5">
-                <Input
-                  value={name}
-                  disabled={busy}
-                  placeholder={`Dalyvis ${index + 1}`}
-                  onChange={(event) =>
-                    setParticipants((current) => current.map((item, i) => (i === index ? event.target.value : item)))
-                  }
-                />
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="size-4" />
+                Kiek žmonių kambaryje?
+              </CardTitle>
+              <CardDescription>
+                Įrašykite skaičių. Nebūtina, kad visi kalbėtų — tylių žmonių sistema nepriskirs kaip kalbėtojų.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    aria-label="Mažiau žmonių"
+                    disabled={expectedCount <= 1}
+                    onClick={() => setExpectedCount((count) => Math.max(1, count - 1))}
+                  >
+                    <Minus />
+                  </Button>
+                  <Input
+                    id="expected-count"
+                    type="number"
+                    min={1}
+                    max={20}
+                    inputMode="numeric"
+                    className="w-20 text-center"
+                    value={expectedCount}
+                    onChange={(event) => {
+                      const value = Number(event.target.value);
+                      if (!Number.isFinite(value)) return;
+                      setExpectedCount(Math.min(20, Math.max(1, Math.round(value))));
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    aria-label="Daugiau žmonių"
+                    disabled={expectedCount >= 20}
+                    onClick={() => setExpectedCount((count) => Math.min(20, count + 1))}
+                  >
+                    <Plus />
+                  </Button>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {expectedCount} {peopleWord(expectedCount)} kambaryje, įskaitant tuos, kurie gali neprabilti
+                </p>
+              </div>
+              <p className="text-sm font-medium">Vardai — nebūtina, ir ne visiems</p>
+              {participants.map((name, index) => (
+                <div key={index} className="flex gap-2">
+                  <Input
+                    value={name}
+                    placeholder={`Dalyvis ${index + 1}`}
+                    onChange={(event) =>
+                      setParticipants((current) => current.map((item, i) => (i === index ? event.target.value : item)))
+                    }
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Pašalinti dalyvį"
+                    onClick={() => setParticipants((current) => current.filter((_, i) => i !== index))}
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
+              ))}
+              {participants.length < 8 ? (
+                <Button variant="outline" size="sm" onClick={() => setParticipants((current) => [...current, ""])}>
+                  <Plus />
+                  Pridėti dalyvį
+                </Button>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-[linear-gradient(180deg,oklch(0.23_0.03_250),oklch(0.18_0.02_250))] text-white ring-white/10">
+            <CardHeader>
+              <CardTitle className="text-white">Įrašas kambaryje</CardTitle>
+              <CardDescription className="text-white/65">
+                Start → kalbėkite → Stop. Po to gausite visą pokalbį ir sutrumpinimą.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="rounded-2xl bg-black/25 px-3 py-4 ring-1 ring-white/10">
+                <Waveform stream={recorder.stream} active={recorder.isRecording} />
+                <div className="mt-3 flex items-center justify-between text-sm text-white/70">
+                  <span className={cn("inline-flex items-center gap-2", recorder.isRecording && "text-red-300")}>
+                    <span className={cn("size-2 rounded-full bg-white/30", recorder.isRecording && "animate-pulse bg-red-400")} />
+                    {recorder.isRecording ? "Įrašoma" : processing ? "Apdorojama kelias minutes" : "Laukiama"}
+                  </span>
+                  <span className="font-mono tabular-nums text-lg text-white">{formatClock(recorder.elapsedMs)}</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void onToggleRecord()}
+                  disabled={processing || recorder.state === "requesting" || recorder.state === "stopping"}
+                  className={cn(
+                    "flex size-24 items-center justify-center rounded-full text-white shadow-[0_16px_40px_-18px_rgba(0,0,0,0.7)] transition disabled:opacity-50",
+                    recorder.isRecording ? "bg-red-500 hover:bg-red-400" : "bg-speaker-two hover:brightness-110"
+                  )}
+                  aria-label={recorder.isRecording ? "Stabdyti įrašą" : "Pradėti įrašą"}
+                >
+                  {recorder.state === "requesting" || recorder.state === "stopping" || processing ? (
+                    <Loader2 className="size-8 animate-spin" />
+                  ) : recorder.isRecording ? (
+                    <Square className="size-8 fill-current" />
+                  ) : (
+                    <Mic className="size-9" />
+                  )}
+                </button>
+                <div className="text-center">
+                  <p className="text-sm font-medium text-white">{recorder.isRecording ? "Stop" : "Start"}</p>
+                  <p className="text-xs text-white/55">
+                    {recorder.isRecording ? "Stabdyti, transkribuoti ir išsaugoti" : "Mikrofonas — iki 70 minučių"}
+                  </p>
+                </div>
+              </div>
+
+              {recorder.isRecording && captions.liveText ? (
+                <p className="rounded-xl bg-white/8 p-3 text-sm leading-6 text-white/80">
+                  <span className="mr-2 text-[11px] tracking-wide text-white/45 uppercase">Gyvos antraštės</span>
+                  {captions.liveText}
+                </p>
+              ) : null}
+
+              {processing ? (
+                <div className="flex items-center gap-2 rounded-xl bg-white/8 px-3 py-2 text-sm text-white/80">
+                  <Loader2 className="size-4 animate-spin" />
+                  {PROCESS_STEPS[processStep]}
+                </div>
+              ) : null}
+
+              <Separator className="bg-white/10" />
+
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm hover:bg-white/15">
+                  <FileAudio className="size-4" />
+                  Įkelti garso failą
+                  <input
+                    type="file"
+                    accept="audio/*,.webm,.mp3,.wav,.m4a,.ogg"
+                    className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void onUpload(file);
+                      event.target.value = "";
+                    }}
+                  />
+                </label>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  aria-label="Pašalinti dalyvį"
-                  disabled={busy}
-                  onClick={() => setParticipants((current) => current.filter((_, i) => i !== index))}
+                  className="text-white hover:bg-white/10 hover:text-white"
+                  onClick={() => void loadDemo()}
+                  disabled={processing || recorder.isRecording}
                 >
-                  <Trash2 />
+                  <Sparkles className="size-4" />
+                  Pavyzdinis susitikimas
                 </Button>
               </div>
-            ))}
-            {participants.length < 8 ? (
-              <Button variant="outline" size="sm" disabled={busy} onClick={() => setParticipants((current) => [...current, ""])}>
-                <Plus />
-                Pridėti
-              </Button>
-            ) : null}
-          </section>
+            </CardContent>
+          </Card>
+        </div>
 
-          <section className="space-y-2 border-t border-border pt-4">
-            <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="lock-before" className="text-sm font-medium">
-                Užrakinti po įrašo
-              </Label>
-              <Switch
-                id="lock-before"
-                checked={lockBeforeRecord}
-                disabled={busy}
-                onCheckedChange={setLockBeforeRecord}
-              />
-            </div>
-            <p className="text-xs leading-5 text-muted-foreground">
-              Jei įjungta prieš Start, po Stop protokolo taisyti nebebus galima — kad neįsimaišytų netiksli informacija.
-            </p>
-          </section>
-
-          <section className="space-y-2 border-t border-border pt-4">
-            <h2 className="text-sm font-medium">Kita</h2>
-            <label className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted">
-              <FileAudio className="size-4" />
-              Įkelti garso failą
-              <input
-                type="file"
-                accept="audio/*,.webm,.mp3,.wav,.m4a,.ogg"
-                className="sr-only"
-                disabled={busy}
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void onUpload(file);
-                  event.target.value = "";
-                }}
-              />
-            </label>
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => void loadDemo()}
-              disabled={busy}
-            >
-              <Sparkles className="size-4" />
-              Pavyzdinis susitikimas
-            </Button>
-          </section>
-        </aside>
-
-        <main className="relative order-1 flex min-w-0 flex-col px-4 py-6 lg:order-2">
-          <div className="pointer-events-none absolute top-5 left-4 size-7 border-t border-l border-sky-300/45" />
-          <div className="pointer-events-none absolute top-5 right-4 size-7 border-t border-r border-amber-200/35" />
-          <div className="pointer-events-none absolute bottom-5 left-4 size-7 border-b border-l border-sky-300/25" />
-          <div className="pointer-events-none absolute bottom-5 right-4 size-7 border-b border-r border-amber-200/20" />
-          <SetupGuide status={status} />
-
+        <div className="space-y-4">
           {displayError ? (
-            <Alert variant="destructive" className="mb-5">
+            <Alert variant="destructive">
               <AlertCircle />
               <AlertTitle>Nepavyko</AlertTitle>
               <AlertDescription>{displayError}</AlertDescription>
             </Alert>
           ) : null}
 
-          <div className="mb-2 flex flex-col items-center gap-5 sm:flex-row sm:items-center">
-            <button
-              type="button"
-              onClick={() => void onToggleRecord()}
-              disabled={processing || recorder.state === "requesting" || recorder.state === "stopping"}
-              className={cn(
-                "relative flex size-[4.75rem] shrink-0 items-center justify-center rounded-full transition disabled:opacity-50",
-                recorder.isRecording
-                  ? "bg-gradient-to-b from-red-400 to-red-700 text-white shadow-[0_0_40px_-8px_oklch(0.65_0.2_25)]"
-                  : "bg-gradient-to-b from-white to-white/70 text-zinc-900 shadow-[0_0_36px_-10px_oklch(0.85_0.04_250)]"
-              )}
-              aria-label={recorder.isRecording ? "Stabdyti įrašą" : "Pradėti įrašą"}
-            >
-              <span className="pointer-events-none absolute inset-[-6px] rounded-full border border-white/15" />
-              {recorder.state === "requesting" || recorder.state === "stopping" || processing ? (
-                <Loader2 className="size-7 animate-spin" />
-              ) : recorder.isRecording ? (
-                <Square className="size-6 fill-current" />
-              ) : (
-                <Mic className="size-7" />
-              )}
-            </button>
-            <div className="min-w-0 flex-1">
-              <div className="mb-1 flex items-center justify-between gap-2 text-xs tracking-[0.18em] text-white/45 uppercase">
-                <span className={cn("inline-flex items-center gap-2", recorder.isRecording && "text-red-300")}>
-                  <span className={cn("size-1.5 rounded-full bg-white/30", recorder.isRecording && "animate-pulse bg-red-400")} />
-                  {recorder.isRecording ? "Įrašoma gyvai" : processing ? PROCESS_STEPS[processStep] : "Start"}
-                </span>
-                <span className="font-mono tracking-normal text-white/80">{formatClock(recorder.elapsedMs)}</span>
-              </div>
-              <Waveform stream={recorder.stream} active={recorder.isRecording} />
-            </div>
-          </div>
-
-          <div className="hairline my-2" />
-
-          {recorder.isRecording || captions.utterances.length > 0 || captions.interim ? (
-            <LiveTranscript
-              utterances={captions.utterances}
-              interim={captions.interim}
-              interimSpeaker={captions.interimSpeaker}
-              recording={recorder.isRecording}
-              supported={captions.supported}
-              endRef={liveEndRef}
-            />
-          ) : saved ? null : (
-            <p className="py-10 font-mono text-sm tracking-wide text-white/30">
-              SPEAKER 1
-              <span className="ml-4 font-sans tracking-normal text-white/40">Paspaudę Start čia matysite, kas ką sako.</span>
-            </p>
-          )}
-
-          {saved ? (
-            <div className="mt-4">
-              <div className="hairline mb-6" />
-              <ProtocolDocument
-                saved={saved}
-                nameOptions={cleanParticipants}
-                copied={copied}
-                onUpdate={persistMeeting}
-                onLock={lockSaved}
-                onCopy={copyRecord}
-              />
-            </div>
-          ) : null}
-        </main>
-
-        <aside className="relative order-3 space-y-6 px-4 py-6 lg:before:absolute lg:before:top-10 lg:before:bottom-10 lg:before:left-0 lg:before:w-px lg:before:bg-gradient-to-b lg:before:from-amber-200/40 lg:before:via-white/12 lg:before:to-transparent">
-          {saved ? (
-            <section className="space-y-2">
-              <h2 className="text-sm font-medium">Eksportas</h2>
-              <Button className="w-full" onClick={() => void copyRecord()}>
-                {copied ? <Check /> : <Copy />}
-                Kopijuoti viską
-              </Button>
-              <Button variant="outline" className="w-full" onClick={downloadMarkdown}>
-                <Download />
-                Parsisiųsti .md
-              </Button>
-              <div className="space-y-1.5 pt-2">
-                <Label htmlFor="email-to">El. paštas</Label>
-                <Input
-                  id="email-to"
-                  type="email"
-                  placeholder="vardas@imone.lt"
-                  value={emailTo}
-                  onChange={(event) => {
-                    setEmailTo(event.target.value);
-                    setEmailState("idle");
-                  }}
-                />
-                <Button className="w-full" variant="secondary" onClick={() => void sendEmail()} disabled={emailState === "sending"}>
-                  {emailState === "sending" ? <Loader2 className="animate-spin" /> : <Mail />}
-                  {emailState === "sent" ? "Išsiųsta" : "Siųsti"}
-                </Button>
-                {emailError ? <p className="text-xs text-destructive">{emailError}</p> : null}
-              </div>
-            </section>
+          {archive.length > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Išsaugoti susitikimai</CardTitle>
+                <CardDescription>Visas pokalbis ir Markdown lieka šiame kompiuteryje aplanke data/meetings.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {archive.map((item) => (
+                  <div key={item.id} className="flex items-center gap-2 rounded-lg bg-muted/70 px-2 py-1.5">
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left text-sm hover:underline"
+                      onClick={() => void openArchive(item.id)}
+                    >
+                      <span className="block truncate font-medium">{item.title}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(item.createdAt).toLocaleString("lt-LT")} · {formatClock(item.durationMs)} · {item.speakerCount} bals.
+                      </span>
+                    </button>
+                    <Button variant="ghost" size="icon-xs" onClick={() => void removeArchive(item.id)} aria-label="Ištrinti">
+                      <Trash2 />
+                    </Button>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
           ) : null}
 
-          <section className="space-y-2">
-            <h2 className="text-sm font-medium">Archyvas</h2>
-            {archive.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Dar nėra išsaugotų susitikimų.</p>
-            ) : (
-              archive.map((item) => (
-                <div key={item.id} className="flex items-start gap-1 rounded-md border border-border/70 px-2 py-1.5">
-                  <button type="button" className="min-w-0 flex-1 text-left text-sm hover:underline" onClick={() => void openArchive(item.id)}>
-                    <span className="flex items-center gap-1 truncate font-medium">
-                      {item.locked ? <Lock className="size-3 shrink-0 text-muted-foreground" /> : null}
-                      {item.title}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground">
-                      {new Date(item.createdAt).toLocaleString("lt-LT")} · {formatClock(item.durationMs)}
-                    </span>
-                  </button>
-                  <Button variant="ghost" size="icon-xs" onClick={() => void removeArchive(item.id)} aria-label="Ištrinti">
-                    <Trash2 />
+          {!result && !processing ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Dar nėra užrašų</CardTitle>
+                <CardDescription>
+                  Suveskite, kiek žmonių sėdi kambaryje — nebūtina, kad visi kalbėtų. Padėkite mikrofoną ant stalo, spauskite Start. Po Stop čia atsiras visas pokalbis ir aprašymas.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          ) : null}
+
+          {result && saved ? (
+            <Card>
+              <CardHeader className="gap-4">
+                <div>
+                  <CardTitle className="font-heading text-2xl">{result.summary.title}</CardTitle>
+                  <CardDescription>
+                    {formatClock(result.durationMs)} · prabilo {result.speakerCount}
+                    {saved.expectedCount ? ` iš ${saved.expectedCount} kambaryje` : ""} ·{" "}
+                    {result.provider === "demo" ? "pavyzdys" : result.provider === "gemini" ? "Gemini" : "Groq"}
+                  </CardDescription>
+                </div>
+                {result.note ? <p className="text-xs text-muted-foreground">{result.note}</p> : null}
+
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Priskirkite balsus vardams (garsiai sakyti nereikia)</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {speakers.map((speaker) => {
+                      const tone = speakerTone(speaker);
+                      return (
+                        <div key={speaker} className="space-y-1.5">
+                          <Label htmlFor={speaker} style={{ color: tone.fg }}>
+                            {defaultSpeakerLabel(speaker)}
+                          </Label>
+                          <Input
+                            id={speaker}
+                            list="participant-names"
+                            placeholder="Pasirinkite arba įrašykite vardą"
+                            value={names[speaker] ?? ""}
+                            onChange={(event) => queueNameSave({ ...names, [speaker]: event.target.value })}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <datalist id="participant-names">
+                    {cleanParticipants.map((name) => (
+                      <option key={name} value={name} />
+                    ))}
+                  </datalist>
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="email-to">Siųsti aprašymą el. paštu</Label>
+                    <Input
+                      id="email-to"
+                      type="email"
+                      placeholder="vardas@imone.lt"
+                      value={emailTo}
+                      onChange={(event) => {
+                        setEmailTo(event.target.value);
+                        setEmailState("idle");
+                      }}
+                    />
+                  </div>
+                  <Button className="self-end" onClick={() => void sendEmail()} disabled={emailState === "sending"}>
+                    {emailState === "sending" ? <Loader2 className="animate-spin" /> : <Mail />}
+                    {emailState === "sent" ? "Išsiųsta" : "Siųsti laišką"}
                   </Button>
                 </div>
-              ))
-            )}
-          </section>
-        </aside>
+                {emailError ? <p className="text-xs text-destructive">{emailError}</p> : null}
+                {!status?.resend ? (
+                  <p className="text-xs text-muted-foreground">
+                    Kad laiškas išeitų, 3 žingsnyje į .env.local įrašykite RESEND_API_KEY. Be to galite parsisiųsti Markdown.
+                  </p>
+                ) : null}
+
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => void copyMarkdown()}>
+                    {copied ? <Check /> : <Copy />}
+                    Kopijuoti Markdown
+                  </Button>
+                  <Button size="sm" onClick={downloadMarkdown}>
+                    <Download />
+                    Parsisiųsti .md
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Tabs defaultValue="summary">
+                  <TabsList>
+                    <TabsTrigger value="summary">Aprašymas</TabsTrigger>
+                    <TabsTrigger value="transcript">Visas pokalbis</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="summary" className="space-y-4 pt-4">
+                    <div className="font-heading text-base leading-8 whitespace-pre-wrap">{result.summary.narrative}</div>
+                    {result.summary.decisions.length > 0 ? (
+                      <div>
+                        <h3 className="mb-2 text-sm font-medium">Nutarimai</h3>
+                        <ul className="list-disc space-y-1 pl-5 text-sm">
+                          {result.summary.decisions.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {result.summary.nextSteps.length > 0 ? (
+                      <div>
+                        <h3 className="mb-2 text-sm font-medium">Tolesni žingsniai</h3>
+                        <ul className="list-disc space-y-1 pl-5 text-sm">
+                          {result.summary.nextSteps.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </TabsContent>
+                  <TabsContent value="transcript" className="space-y-3 pt-4">
+                    {result.segments.map((segment, index) => {
+                      const tone = speakerTone(segment.speaker);
+                      return (
+                        <article key={`${segment.startMs}-${index}`} className="flex gap-3">
+                          <span className="mt-1 w-12 shrink-0 font-mono text-[11px] text-muted-foreground">
+                            {formatTimestamp(segment.startMs)}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <span
+                              className="mb-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-black/5"
+                              style={{ background: tone.bg, color: tone.fg }}
+                            >
+                              {speakerName(segment.speaker, names)}
+                            </span>
+                            <p className="text-sm leading-6">{segment.text}</p>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
+          ) : null}
+        </div>
       </div>
     </div>
   );

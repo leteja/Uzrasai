@@ -134,9 +134,11 @@ function asGeminiMime(mimeType: string): string {
 function attendeesHint(participants?: string[], expectedCount?: number): string {
   const names = (participants ?? []).map((name) => name.trim()).filter(Boolean);
   const inRoom = Math.min(20, Math.max(expectedCount || 0, names.length, 1));
-  return `\nKambaryje sėdi ${inRoom} žmonių. Ne visi privalo kalbėti — jei kas nors visą laiką tyli, jo NĖRA transkripte ir jam neišgalvok replikų.
-Skirk tik tuos balsus, kurie GIRDĖTI. Kalbėtojų transkripte gali būti mažiau nei ${inRoom} (daugiausiai ${MAX_SPEAKERS}).
-${names.length ? `Žinomi vardai (nebūtina sakyti garsiai, ne visiems, ir ne visi turi būti priskirti): ${names.join(", ")}.` : "Vardų nėra — žymėk tik balsus, be išgalvotų vardų."}
+  return `\nKambaryje sėdi ${inRoom} žmonių. Ne visi privalo kalbėti.
+Vardus rašyk TIK jei jie AIŠKIAI IŠTARTI transkripte (pvz. „aš Rūta“, „čia Tomas“).
+Jei ne visi kalbėtojai paminėjo vardą — neduok vardo NIEKAM. Palik SPEAKER_1, SPEAKER_2…
+Negalvok vardų ir nepriskirk iš sąrašo, jei transkripte to vardo nėra.
+${names.length ? `Sąrašas tik kaip užuomina, jei tas vardas girdimas: ${names.join(", ")}.` : ""}
 Balsus žymėk SPEAKER_1, SPEAKER_2, SPEAKER_3 ir t. t.`;
 }
 
