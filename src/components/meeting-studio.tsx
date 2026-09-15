@@ -183,7 +183,7 @@ export function MeetingStudio() {
       if (!response.ok) {
         if (payload.code === "NO_PROVIDER") {
           await loadDemo();
-          setError("Tikras įrašas neapdorotas — trūksta Gemini rakto. Žemiau pavyzdys; instrukcija — viršuje.");
+          setError("Įrašymas serveryje dar neįjungtas. Savininkas turi įrašyti vieną Gemini raktą.");
           return;
         }
         throw new Error(payload.error || "Nepavyko apdoroti įrašo.");
@@ -285,10 +285,9 @@ export function MeetingStudio() {
   }
 
   const readyLabel = useMemo(() => {
-    if (!status) return "Tikrinama sąranka…";
-    if (status.preferred === "gemini") return "Paruošta: lietuviškai, keli balsai, iki ~1 val.";
-    if (status.preferred === "groq") return "Paruošta su Groq (balsai pagal pokalbio eigą)";
-    return "Reikia rakto — žiūrėkite instrukciją žemiau";
+    if (!status) return "Kraunama…";
+    if (status.ready) return "Galima įrašyti";
+    return "Savininkui reikia rakto serveryje";
   }, [status]);
 
   const displayError = error || recorder.error;
@@ -300,15 +299,17 @@ export function MeetingStudio() {
         <div className="max-w-2xl space-y-3">
           <p className="text-xs font-medium tracking-[0.22em] text-speaker-one uppercase">Užrašai</p>
           <h1 className="font-heading text-4xl leading-[1.05] text-balance sm:text-5xl">
-            Įrašykite kambario susitikimą. Sistema atskirs balsus ir išsaugos visą pokalbį.
+            Start. Stop. Gaukite visą pokalbį ir sutrumpinimą.
           </h1>
           <p className="max-w-xl text-base text-muted-foreground">
-            Telefonas ar kompiuterio mikrofonas ant stalo. Iki aštuonių kalbėtojų, apie valandą. Vardus suveskite tyliai prieš Start — garsiai sakyti nereikia. Po Stop lieka transkriptas, Markdown ir laiškas.
+            Padėkite telefoną ar kompiuterį ant stalo, spauskite Start, kalbėkite, tada Stop. Savo Google rakto kurti nereikia.
           </p>
         </div>
-        <Badge variant="outline" className="h-auto max-w-xs px-3 py-2 text-left text-xs leading-5 font-normal whitespace-normal">
-          {readyLabel}
-        </Badge>
+        {status?.ready ? null : (
+          <Badge variant="outline" className="h-auto max-w-xs px-3 py-2 text-left text-xs leading-5 font-normal whitespace-normal">
+            {readyLabel}
+          </Badge>
+        )}
       </header>
 
       <SetupGuide status={status} />
@@ -319,10 +320,10 @@ export function MeetingStudio() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Users className="size-4" />
-                Kas sėdi kambaryje
+                Dalyvių vardai — nebūtina
               </CardTitle>
               <CardDescription>
-                Suveskite vardus prieš įrašą. Jų sakyti mikrofonui nereikia — po Stop kiekvieną balsą priskirsite vardui.
+                Galite palikti tuščia ir iškart spausti Start. Vardus priskirsite po įrašo, be garsaus minėjimo.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -359,7 +360,7 @@ export function MeetingStudio() {
             <CardHeader>
               <CardTitle className="text-white">Įrašas kambaryje</CardTitle>
               <CardDescription className="text-white/65">
-                Padėkite telefoną ar nešiojamąjį per vidurį stalo. Start → kalbėkite iki ~1 val. → Stop.
+                Start → kalbėkite → Stop. Po to gausite visą pokalbį ir sutrumpinimą.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">

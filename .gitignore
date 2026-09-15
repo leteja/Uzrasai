@@ -42,6 +42,10 @@ next-env.d.ts
 
 agent-tools/
 
+# next auto-generated
+AGENTS.md
+CLAUDE.md
+
 # išsaugoti susitikimai (asmeniniai užrašai)
 data/meetings/*.json
 data/meetings/*.md

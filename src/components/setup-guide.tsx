@@ -5,18 +5,18 @@ import type { ProviderStatus } from "@/lib/meeting";
 import { KeyRound } from "lucide-react";
 
 export function SetupGuide({ status }: { status: ProviderStatus | null }) {
-  const ready = Boolean(status?.ready);
+  if (status?.ready) return null;
   const mailReady = Boolean(status?.resend);
 
   return (
-    <Card className={ready ? "" : "ring-2 ring-speaker-two/40"}>
+    <Card className="ring-2 ring-speaker-two/40">
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2">
-          <CardTitle>Ką daryti, kad veiktų tikras įrašas</CardTitle>
-          <Badge variant={ready ? "secondary" : "outline"}>{ready ? "Raktas rastas" : "Reikia rakto"}</Badge>
+          <CardTitle>Savininkui: vieną kartą įrašykite raktą serveryje</CardTitle>
+          <Badge variant="outline">Lankytojams šito daryti nereikia</Badge>
         </div>
         <CardDescription>
-          Tai daroma vieną kartą kompiuteryje. Raktas nemokamas. Failas turi gulėti ten pat, kur <code>package.json</code>.
+          Tai tik svetainės savininkui. Lankytojai ateina, spaudžia Start ir gauna užrašus — savo Google rakto jie nekuria.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6 text-sm leading-6">
@@ -64,7 +64,7 @@ export function SetupGuide({ status }: { status: ProviderStatus | null }) {
             <li>
               Terminale, kur veikia svetainė, spauskite Ctrl+C. Tada vėl: <code>npm run dev</code>.
             </li>
-            <li>Perkraukite šią svetainę naršyklėje. Žalia žyma turi pasakyti „Raktas rastas“.</li>
+              <li>Perkraukite šią svetainę naršyklėje. Lankytojams instrukcija dingsta — lieka Start ir Stop.</li>
           </ol>
         </section>
 
@@ -92,15 +92,13 @@ EMAIL_TO=jusu@pastas.lt`}</pre>
           </p>
         </section>
 
-        {!ready ? (
-          <Alert>
+        <Alert>
             <KeyRound />
-            <AlertTitle>Kol raktas neįrašytas</AlertTitle>
+            <AlertTitle>Kol raktas neįrašytas serveryje</AlertTitle>
             <AlertDescription>
-              Galite spausti „Pavyzdinis susitikimas“ ir pamatyti, kaip atrodo kelių balsų užrašai. Start mygtukas mikrofono klaus, bet transkripcija be rakto neprasidės.
+              Lankytojai savo rakto nekuria. Užtenka šio vieno rakto serveryje. Kol jo nėra, galite spausti „Pavyzdinis susitikimas“.
             </AlertDescription>
           </Alert>
-        ) : null}
       </CardContent>
     </Card>
   );

@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { GoogleGenAI } from "@google/genai";
 import Groq from "groq-sdk";
 import { getGeminiKey, getGroqKey, getProviderStatus } from "@/lib/env";
+import { TRANSCRIBE_MODEL, geminiJsonText, publicGeminiError } from "@/lib/gemini";
 import {
   MAX_SPEAKERS,
   type MeetingResult,
@@ -206,8 +207,49 @@ async function transcribeWithGeminiRest(
   apiKey: string,
   inlineData: { mimeType: string; data: string }
 ): Promise<GeminiRestResponse> {
+  const interactions = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/interactions?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: TRANSCRIBE_MODEL,
+        store: false,
+        input: [
+          {
+            type: "audio",
+            mime_type: inlineData.mimeType,
+            data: inlineData.data,
+          },
+        ],
+        generation_config: {
+          transcription_config: {
+            language_codes: ["lt-LT"],
+            mode: {
+              type: "verbatim",
+              diarization_mode: "speaker",
+              timestamp_granularities: ["word"],
+            },
+          },
+        },
+      }),
+    }
+  );
+
+  if (interactions.ok) {
+    const payload = (await interactions.json()) as GeminiRestResponse & {
+      output_text?: string;
+      outputs?: Array<{ text?: string }>;
+    };
+    if (payload.candidates?.length) return payload;
+    const text = payload.text || payload.output_text || payload.outputs?.map((item) => item.text ?? "").join("\n");
+    if (text?.trim()) {
+      return { text: text.trim(), candidates: payload.candidates };
+    }
+  }
+
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-transcribe:generateContent?key=${encodeURIComponent(apiKey)}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${TRANSCRIBE_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -229,6 +271,27 @@ async function transcribeWithGeminiRest(
     throw new Error(payload.error?.message || `Gemini Transcribe HTTP ${response.status}`);
   }
   return payload;
+}
+
+async function toMp3(buffer: Buffer, mimeType: string): Promise<{ buffer: Buffer; mimeType: string }> {
+  if (mimeType.includes("mpeg") || mimeType.includes("mp3")) {
+    return { buffer, mimeType: "audio/mp3" };
+  }
+  const dir = await mkdtemp(path.join(tmpdir(), "uzrasai-mp3-"));
+  const ext = mimeType.includes("mp4") ? "m4a" : mimeType.includes("wav") ? "wav" : mimeType.includes("ogg") ? "ogg" : "webm";
+  const inputPath = path.join(dir, `input.${ext}`);
+  const outputPath = path.join(dir, "out.mp3");
+  try {
+    await writeFile(inputPath, buffer);
+    await execFileAsync(
+      "ffmpeg",
+      ["-y", "-i", inputPath, "-ar", "16000", "-ac", "1", "-c:a", "libmp3lame", "-q:a", "5", outputPath],
+      { timeout: 180_000 }
+    );
+    return { buffer: await readFile(outputPath), mimeType: "audio/mp3" };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 async function splitAudioChunks(
@@ -302,19 +365,18 @@ async function unifyChunkSpeakers(ai: GoogleGenAI, chunks: MeetingSegment[][]): 
       .join("\n\n");
 
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: `Sujunk kelių dalių transkripciją į vieną kalbėtojų sistemą.
+      const text = await geminiJsonText(
+        ai,
+        `Sujunk kelių dalių transkripciją į vieną kalbėtojų sistemą.
 Kiekviena dalis turi SAVO SPEAKER_N — tas pats žmogus gretimoje dalyje gali būti kitu numeriu.
 Priskirk visam pokalbiui nuoseklius SPEAKER_1..SPEAKER_${MAX_SPEAKERS}.
 Grąžink JSON: {"map":[{"chunk":0,"index":0,"speaker":"SPEAKER_1"}]}
 map turi turėti visus [cX:Y] įrašus.
 
-${labeled}`,
-        config: { responseMimeType: "application/json", temperature: 0 },
-      });
+${labeled}`
+      );
 
-      const parsed = JSON.parse(response.text ?? "{}") as {
+      const parsed = JSON.parse(text) as {
         map?: Array<{ chunk?: number; index?: number; speaker?: string }>;
       };
       const lookup = new Map<string, SpeakerId>();
@@ -344,15 +406,11 @@ async function summarizeWithGemini(
   segments: MeetingSegment[],
   participants?: string[]
 ): Promise<MeetingSummary> {
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: `${SUMMARY_PROMPT}${participantsHint(participants)}\n\nPOKALBIS:\n${transcriptFromSegments(segments)}`,
-    config: {
-      responseMimeType: "application/json",
-      temperature: 0.2,
-    },
-  });
-  return parseSummary(response.text ?? "");
+  const text = await geminiJsonText(
+    ai,
+    `${SUMMARY_PROMPT}${participantsHint(participants)}\n\nPOKALBIS:\n${transcriptFromSegments(segments)}`
+  );
+  return parseSummary(text);
 }
 
 async function processWithGeminiFlash(
@@ -364,13 +422,11 @@ async function processWithGeminiFlash(
     ? `\nNaršyklės gyvos antraštės (gali būti netikslios): ${input.liveCaption}`
     : "";
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [
-      {
-        parts: [
-          {
-            text: `Transkribuok šį lietuvišką susitikimo įrašą (gali trukti iki valandos, keli žmonės kambaryje).
+  const mp3Mime = inlineData.mimeType.includes("mpeg") || inlineData.mimeType.includes("mp3") ? "audio/mp3" : "audio/mpeg";
+  const text = await geminiJsonText(ai, [
+    {
+      type: "text",
+      text: `Transkribuok šį lietuvišką susitikimo įrašą (gali trukti iki valandos, keli žmonės kambaryje).
 Atskirk balsus SPEAKER_1, SPEAKER_2, SPEAKER_3... iki SPEAKER_${MAX_SPEAKERS} pagal tai, kas kalba — ne pagal sakinių eilę, o pagal balsą.
 Jei girdėti tik vienas balsas, visus segmentus žymėk SPEAKER_1.
 Tada parašyk viso pokalbio aprašymą lietuviškai: sutrumpink, bet aprašyk viską, kas buvo pasakyta.
@@ -387,18 +443,15 @@ Grąžink tik JSON:
     "nextSteps": []
   }
 }`,
-          },
-          { inlineData },
-        ],
-      },
-    ],
-    config: {
-      responseMimeType: "application/json",
-      temperature: 0.1,
     },
-  });
+    {
+      type: "audio",
+      data: inlineData.data,
+      mime_type: mp3Mime,
+    },
+  ]);
 
-  const parsed = JSON.parse(response.text ?? "{}") as {
+  const parsed = JSON.parse(text) as {
     segments?: Array<{ speaker?: string; text?: string; startMs?: number; endMs?: number }>;
     summary?: Partial<MeetingSummary>;
   };
@@ -437,7 +490,8 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
   if (!apiKey) throw new Error("Trūksta GEMINI_API_KEY.");
 
   const ai = new GoogleGenAI({ apiKey });
-  const chunks = await splitAudioChunks(input.buffer, input.mimeType, input.durationMs);
+  const mp3 = await toMp3(input.buffer, input.mimeType);
+  const chunks = await splitAudioChunks(mp3.buffer, mp3.mimeType, input.durationMs);
 
   try {
     const transcribedChunks: MeetingSegment[][] = [];
@@ -475,8 +529,8 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
   } catch (error) {
     console.warn("Gemini Transcribe nepavyko, bandoma Flash su garsu:", error);
     return processWithGeminiFlash(ai, input, {
-      mimeType: asGeminiMime(input.mimeType),
-      data: input.buffer.toString("base64"),
+      mimeType: mp3.mimeType,
+      data: mp3.buffer.toString("base64"),
     });
   }
 }
@@ -591,12 +645,17 @@ Papildomai JSON turi turėti segments masyvą su visomis Whisper atkarpomis:
 }
 
 export async function processMeetingAudio(input: AudioInput): Promise<MeetingResult> {
-  const status = getProviderStatus();
-  if (status.preferred === "gemini") {
-    return processWithGemini(input);
+  try {
+    const status = getProviderStatus();
+    if (status.preferred === "gemini") {
+      return await processWithGemini(input);
+    }
+    if (status.preferred === "groq") {
+      return await processWithGroq(input);
+    }
+    throw Object.assign(new Error("Nėra sukonfigūruoto transkripcijos rakto."), { code: "NO_PROVIDER" });
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error) throw error;
+    throw new Error(publicGeminiError(error));
   }
-  if (status.preferred === "groq") {
-    return processWithGroq(input);
-  }
-  throw Object.assign(new Error("Nėra sukonfigūruoto transkripcijos rakto."), { code: "NO_PROVIDER" });
 }
