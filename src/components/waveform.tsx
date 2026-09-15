@@ -27,7 +27,7 @@ export function Waveform({ stream, active, className }: WaveformProps) {
     const drawIdle = () => {
       const { width, height } = canvas;
       context.clearRect(0, 0, width, height);
-      context.strokeStyle = "rgba(36, 48, 62, 0.18)";
+      context.strokeStyle = "rgba(255, 255, 255, 0.12)";
       context.lineWidth = 2;
       context.beginPath();
       context.moveTo(0, height / 2);
@@ -72,7 +72,7 @@ export function Waveform({ stream, active, className }: WaveformProps) {
         const barHeight = Math.max(6 * window.devicePixelRatio, value * height * 0.92);
         const x = i * (barWidth + gap);
         const y = (height - barHeight) / 2;
-        context.fillStyle = i % 2 === 0 ? "oklch(0.48 0.1 195)" : "oklch(0.62 0.13 72)";
+        context.fillStyle = `oklch(0.82 0.01 260 / ${0.28 + value * 0.7})`;
         context.beginPath();
         context.roundRect(x, y, barWidth, barHeight, 6 * window.devicePixelRatio);
         context.fill();

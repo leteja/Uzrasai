@@ -38,6 +38,7 @@ export async function POST(request: Request) {
       20,
       Math.max(1, Number(form.get("expectedCount") || participants.length || 1))
     );
+    const locked = String(form.get("locked") || "") === "true";
 
     const buffer = Buffer.from(await audio.arrayBuffer());
     const extension = mimeType.includes("mp4") ? "m4a" : mimeType.includes("mpeg") ? "mp3" : "webm";
@@ -64,7 +65,9 @@ export async function POST(request: Request) {
       participants,
       expectedCount,
       speakerNames,
-      markdown: toMarkdown(result, speakerNames, participants, expectedCount),
+      locked,
+      lockedAt: locked ? new Date().toISOString() : undefined,
+      markdown: toMarkdown(result, speakerNames, participants, expectedCount, locked),
       result,
     });
 

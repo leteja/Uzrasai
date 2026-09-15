@@ -2,28 +2,23 @@
 
 Įrašykite susitikimą: **Start → Stop → viso pokalbio tekstas ir sutrumpinimas.**
 
-Lankytojams **savo Google rakto kurti nereikia**. Vieną kartą raktą įrašo svetainės savininkas serveryje. Visi naudoja tą patį nemokamą limitą.
+Lankytojams **savo Google rakto kurti nereikia**. Vieną kartą raktą įrašo svetainės savininkas serveryje.
 
 ## Lankytojui
 
-1. Atidarykite svetainę.
-2. Įrašykite, **kiek žmonių kambaryje**. Nebūtina, kad visi kalbėtų — tylintys nebus priskirti kaip kalbėtojai.
-3. Vardai nebūtini ir ne visiems.
-4. Leiskite mikrofoną.
-5. **Start**, kalbėkite, **Stop**.
-6. Palaukite. Gausite visą pokalbį ir sutrumpinimą. Vardus galite priskirti po to.
+1. Viršuje matote, kiek žmonių kambaryje. Skaičių keiskite kairėje. Tylintys gali neprabilti.
+2. Jei reikia, įjunkite **Užrakinti po įrašo** — tada protokolo taisyti nebebus galima.
+3. Viduryje **Start**, kalbėkite, **Stop**. Kol kalbate, matote, kas girdima, ir kad garsas rašomas.
+4. Po Stop taisykite žodžius, vardus ir priskirkite repliką kitam kalbėtojui, jei sistema suklydo.
+5. **Kopijuoti visą pokalbį ir sutrumpinimą** nukopijuoja viską. Baigę — **Užrakinti**.
 
-## Savininkui (vieną kartą, nemokamai)
+## Savininkui (vieną kartą)
 
-Kad lankytojams nereikėtų kurti raktų, `.env.local` serveryje turi būti **jūsų** raktas:
+`.env.local` šalia `package.json`:
 
 ```bash
 GEMINI_API_KEY=AIzaSy...
 ```
-
-Tai tas pats failas šalia `package.json`, kurį jau sukūrėte. Jis niekam nerodomas.
-
-Nemokama, kol telpate į Google AI Studio limitą. Mokėti reikėtų tik jei įrašų taptų labai daug.
 
 ## Paleidimas
 

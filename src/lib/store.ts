@@ -38,6 +38,7 @@ export async function listMeetings(): Promise<MeetingListItem[]> {
           title: meeting.result.summary.title,
           durationMs: meeting.result.durationMs,
           speakerCount: meeting.result.speakerCount,
+          locked: Boolean(meeting.locked),
         });
       } catch {
         // skip broken files

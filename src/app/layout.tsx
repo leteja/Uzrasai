@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Newsreader } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -7,16 +7,15 @@ const geistSans = Geist({
   subsets: ["latin", "latin-ext"],
 });
 
-const newsreader = Newsreader({
-  variable: "--font-newsreader",
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
   subsets: ["latin", "latin-ext"],
-  style: ["normal", "italic"],
 });
 
 export const metadata: Metadata = {
-  title: "Užrašai — susitikimų pokalbiai lietuviškai",
+  title: "Užrašai — susitikimų protokolas",
   description:
-    "Įrašykite kambario susitikimą, atskirkite kelis kalbėtojus ir gaukite viso pokalbio aprašymą lietuvių kalba.",
+    "Įrašykite kambario susitikimą, atskirkite kalbėtojus ir gaukite viso pokalbio aprašymą lietuvių kalba.",
 };
 
 export default function RootLayout({
@@ -25,10 +24,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="lt">
-      <body className={`${geistSans.variable} ${newsreader.variable} antialiased`}>
-        {children}
-      </body>
+    <html lang="lt" className="dark">
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>{children}</body>
     </html>
   );
 }

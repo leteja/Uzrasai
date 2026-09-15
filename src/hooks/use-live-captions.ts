@@ -25,6 +25,7 @@ function getRecognition(): SpeechRecognitionLike | null {
 export function useLiveCaptions() {
   const [supported, setSupported] = useState(false);
   const [liveText, setLiveText] = useState("");
+  const [finalLines, setFinalLines] = useState<string[]>([]);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const finalRef = useRef("");
 
@@ -33,6 +34,7 @@ export function useLiveCaptions() {
     setSupported(Boolean(recognition));
     finalRef.current = "";
     setLiveText("");
+    setFinalLines([]);
     if (!recognition) return;
 
     recognition.lang = "lt-LT";
@@ -42,10 +44,13 @@ export function useLiveCaptions() {
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const result = event.results[i];
+        const piece = result[0].transcript.trim();
+        if (!piece) continue;
         if (result.isFinal) {
-          finalRef.current = `${finalRef.current} ${result[0].transcript}`.trim();
+          finalRef.current = `${finalRef.current} ${piece}`.trim();
+          setFinalLines((current) => [...current, piece]);
         } else {
-          interim += result[0].transcript;
+          interim += piece;
         }
       }
       setLiveText(`${finalRef.current} ${interim}`.trim());
@@ -72,7 +77,8 @@ export function useLiveCaptions() {
   const reset = useCallback(() => {
     finalRef.current = "";
     setLiveText("");
+    setFinalLines([]);
   }, []);
 
-  return { supported, liveText, start, stop, reset };
+  return { supported, liveText, finalLines, start, stop, reset };
 }

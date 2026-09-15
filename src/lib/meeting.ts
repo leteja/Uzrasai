@@ -36,6 +36,8 @@ export type SavedMeeting = {
   speakerNames: Record<string, string>;
   markdown: string;
   result: MeetingResult;
+  locked: boolean;
+  lockedAt?: string;
 };
 
 export type MeetingListItem = {
@@ -44,6 +46,7 @@ export type MeetingListItem = {
   title: string;
   durationMs: number;
   speakerCount: number;
+  locked: boolean;
 };
 
 export type ProviderStatus = {
@@ -119,11 +122,21 @@ export function speakerName(id: SpeakerId | string, names: Record<string, string
   return names[id]?.trim() || defaultSpeakerLabel(id);
 }
 
+export function uniqueSpeakerIds(segments: MeetingSegment[]): SpeakerId[] {
+  const ids = [...new Set(segments.map((segment) => segment.speaker))];
+  return ids.length > 0 ? ids : listSpeakers(1);
+}
+
+export function withSpeakerCount(result: MeetingResult): MeetingResult {
+  return { ...result, speakerCount: uniqueSpeakerIds(result.segments).length };
+}
+
 export function toMarkdown(
   result: MeetingResult,
   names: Record<string, string>,
   participants: string[] = [],
-  expectedCount = 0
+  expectedCount = 0,
+  locked = false
 ): string {
   const date = new Date().toLocaleString("lt-LT");
   const named = participants.filter(Boolean);
@@ -132,6 +145,7 @@ export function toMarkdown(
     "",
     `Data: ${date}`,
     `Trukmė: ${formatClock(result.durationMs)}`,
+    `Protokolas: ${locked ? "užrakintas (teksto keisti negalima)" : "neužrakintas (galima taisyti klaidas)"}`,
   ];
 
   if (expectedCount > 0) {
@@ -166,14 +180,14 @@ export function toMarkdown(
 }
 
 export const SPEAKER_PALETTE = [
-  { bg: "oklch(0.45 0.09 195 / 0.14)", fg: "oklch(0.38 0.09 195)" },
-  { bg: "oklch(0.58 0.13 70 / 0.16)", fg: "oklch(0.5 0.12 70)" },
-  { bg: "oklch(0.5 0.12 310 / 0.14)", fg: "oklch(0.42 0.12 310)" },
-  { bg: "oklch(0.48 0.11 145 / 0.14)", fg: "oklch(0.4 0.1 145)" },
-  { bg: "oklch(0.55 0.14 25 / 0.14)", fg: "oklch(0.48 0.13 25)" },
-  { bg: "oklch(0.5 0.1 250 / 0.14)", fg: "oklch(0.4 0.1 250)" },
-  { bg: "oklch(0.52 0.08 40 / 0.16)", fg: "oklch(0.44 0.08 40)" },
-  { bg: "oklch(0.46 0.08 200 / 0.16)", fg: "oklch(0.38 0.08 200)" },
+  { bg: "oklch(0.30 0.018 250)", fg: "oklch(0.86 0.02 250)" },
+  { bg: "oklch(0.31 0.016 80)", fg: "oklch(0.86 0.02 80)" },
+  { bg: "oklch(0.30 0.02 300)", fg: "oklch(0.86 0.02 300)" },
+  { bg: "oklch(0.30 0.018 160)", fg: "oklch(0.86 0.02 160)" },
+  { bg: "oklch(0.31 0.02 30)", fg: "oklch(0.86 0.02 30)" },
+  { bg: "oklch(0.30 0.016 220)", fg: "oklch(0.86 0.016 220)" },
+  { bg: "oklch(0.31 0.014 50)", fg: "oklch(0.86 0.016 50)" },
+  { bg: "oklch(0.30 0.014 200)", fg: "oklch(0.86 0.014 200)" },
 ] as const;
 
 export function speakerTone(id: SpeakerId | string) {
