@@ -41,3 +41,7 @@ yarn-error.log*
 next-env.d.ts
 
 agent-tools/
+
+# išsaugoti susitikimai (asmeniniai užrašai)
+data/meetings/*.json
+data/meetings/*.md

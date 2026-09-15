@@ -1,27 +1,48 @@
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
 import { GoogleGenAI } from "@google/genai";
 import Groq from "groq-sdk";
 import { getGeminiKey, getGroqKey, getProviderStatus } from "@/lib/env";
 import {
+  MAX_SPEAKERS,
   type MeetingResult,
   type MeetingSegment,
   type MeetingSummary,
   type SpeakerId,
+  defaultSpeakerLabel,
   normalizeSpeaker,
   parseOffsetMs,
+  speakerId,
 } from "@/lib/meeting";
 
+const execFileAsync = promisify(execFile);
+const CHUNK_SECONDS = 24 * 60;
+
 const SUMMARY_PROMPT = `Tu esi susitikimų sekretorius. Dirbi tik lietuvių kalba.
-Gavai pažodžiui transkribuotą pokalbį su kalbėtojų žymėmis.
+Gavai pažodžiui transkribuotą pokalbį su kalbėtojų žymėmis. Pokalbyje gali būti iki ${MAX_SPEAKERS} žmonių.
 Parašyk viso susitikimo aprašymą: sutrumpink pasikartojimus, bet nepraleisk to, kas buvo pasakyta.
 Nerašyk, ko pokalbyje nebuvo. Jei nutarimų ar darbų nėra, palik tuščius sąrašus.
+Vardus naudok tik jei jie pateikti dalyvių sąraše arba aiškiai pasakyti transkripte. Negalvok vardų.
 
 Grąžink tik JSON:
 {
   "title": "trumpas susitikimo pavadinimas",
-  "narrative": "2–5 pastraipos. Pilnas, bet glaustas viso pokalbio aprašymas: kas kalbėjo, ką pasakė, kokie argumentai, skaičiai, datos, sutartys.",
+  "narrative": "3–8 pastraipos. Pilnas, bet glaustas viso pokalbio aprašymas: kas kalbėjo, ką pasakė, kokie argumentai, skaičiai, datos, sutartys.",
   "decisions": ["nutarimai, jei buvo"],
   "nextSteps": ["ką kas žadėjo padaryti"]
 }`;
+
+type AudioInput = {
+  buffer: Buffer;
+  mimeType: string;
+  filename: string;
+  durationMs: number;
+  liveCaption?: string;
+  participants?: string[];
+};
 
 function emptySummary(): MeetingSummary {
   return {
@@ -55,7 +76,7 @@ function parseSummary(raw: string): MeetingSummary {
 
 function transcriptFromSegments(segments: MeetingSegment[]): string {
   return segments
-    .map((segment) => `${segment.speaker === "SPEAKER_1" ? "Kalbėtojas 1" : "Kalbėtojas 2"}: ${segment.text}`)
+    .map((segment) => `${defaultSpeakerLabel(segment.speaker)}: ${segment.text}`)
     .join("\n");
 }
 
@@ -87,9 +108,10 @@ function mapUnknownSpeakers(raw: { speaker: string; text: string; startMs: numbe
       .map((item) => {
         const key = item.speaker || "unknown";
         if (!order.includes(key)) order.push(key);
-        const index = Math.min(order.indexOf(key), 1);
+        const numbered = /(\d+)/.exec(key);
+        const index = numbered ? Number(numbered[1]) || order.indexOf(key) + 1 : order.indexOf(key) + 1;
         return {
-          speaker: (index === 0 ? "SPEAKER_1" : "SPEAKER_2") as SpeakerId,
+          speaker: speakerId(index === 0 ? 1 : index) as SpeakerId,
           text: item.text,
           startMs: item.startMs,
           endMs: item.endMs,
@@ -98,14 +120,6 @@ function mapUnknownSpeakers(raw: { speaker: string; text: string; startMs: numbe
   );
 }
 
-type AudioInput = {
-  buffer: Buffer;
-  mimeType: string;
-  filename: string;
-  durationMs: number;
-  liveCaption?: string;
-};
-
 function asGeminiMime(mimeType: string): string {
   if (mimeType.includes("webm")) return "audio/webm";
   if (mimeType.includes("mp4") || mimeType.includes("m4a") || mimeType.includes("aac")) return "audio/mp4";
@@ -113,6 +127,13 @@ function asGeminiMime(mimeType: string): string {
   if (mimeType.includes("wav")) return "audio/wav";
   if (mimeType.includes("ogg")) return "audio/ogg";
   return mimeType.split(";")[0] || "audio/webm";
+}
+
+function participantsHint(participants?: string[]): string {
+  const names = (participants ?? []).map((name) => name.trim()).filter(Boolean);
+  if (names.length === 0) return "";
+  return `\nKambaryje dalyvauja (vardų NEREIKIA sakyti garsiai; tai tik sąrašas priskyrimui): ${names.join(", ")}.
+Balsus žymėk SPEAKER_1, SPEAKER_2, SPEAKER_3 ir t. t. Vardų į transkriptą neįrašinėk, nebent jie buvo ištarti.`;
 }
 
 function extractGeminiTurns(response: {
@@ -165,18 +186,6 @@ function extractGeminiTurns(response: {
   return mapUnknownSpeakers(raw);
 }
 
-async function summarizeWithGemini(ai: GoogleGenAI, segments: MeetingSegment[]): Promise<MeetingSummary> {
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: `${SUMMARY_PROMPT}\n\nPOKALBIS:\n${transcriptFromSegments(segments)}`,
-    config: {
-      responseMimeType: "application/json",
-      temperature: 0.2,
-    },
-  });
-  return parseSummary(response.text ?? "");
-}
-
 type GeminiRestResponse = {
   error?: { message?: string };
   text?: string;
@@ -222,37 +231,128 @@ async function transcribeWithGeminiRest(
   return payload;
 }
 
-async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
-  const apiKey = getGeminiKey();
-  if (!apiKey) throw new Error("Trūksta GEMINI_API_KEY.");
-
-  const ai = new GoogleGenAI({ apiKey });
-  const mimeType = asGeminiMime(input.mimeType);
-  const inlineData = {
-    mimeType,
-    data: input.buffer.toString("base64"),
-  };
-
-  try {
-    const transcribed = await transcribeWithGeminiRest(apiKey, inlineData);
-    const segments = extractGeminiTurns(transcribed);
-    if (segments.length === 0) {
-      throw new Error("Tuščia transkripcija.");
-    }
-
-    const summary = await summarizeWithGemini(ai, segments);
-    return {
-      segments,
-      summary,
-      provider: "gemini",
-      language: "lt",
-      durationMs: input.durationMs,
-      speakerCount: uniqueSpeakers(segments),
-    };
-  } catch (error) {
-    console.warn("Gemini Transcribe nepavyko, bandoma Flash su garsu:", error);
-    return processWithGeminiFlash(ai, input, inlineData);
+async function splitAudioChunks(
+  buffer: Buffer,
+  mimeType: string,
+  durationMs: number
+): Promise<Array<{ buffer: Buffer; mimeType: string; offsetMs: number }>> {
+  const needsSplit = durationMs > CHUNK_SECONDS * 1000 + 30_000;
+  if (!needsSplit) {
+    return [{ buffer, mimeType: asGeminiMime(mimeType), offsetMs: 0 }];
   }
+
+  const dir = await mkdtemp(path.join(tmpdir(), "uzrasai-"));
+  const ext = mimeType.includes("mp4") ? "m4a" : mimeType.includes("mpeg") ? "mp3" : "webm";
+  const inputPath = path.join(dir, `input.${ext}`);
+  try {
+    await writeFile(inputPath, buffer);
+    await execFileAsync(
+      "ffmpeg",
+      [
+        "-y",
+        "-i",
+        inputPath,
+        "-f",
+        "segment",
+        "-segment_time",
+        String(CHUNK_SECONDS),
+        "-reset_timestamps",
+        "1",
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        "-c:a",
+        "libmp3lame",
+        "-q:a",
+        "5",
+        path.join(dir, "chunk-%03d.mp3"),
+      ],
+      { timeout: 180_000 }
+    );
+    const files = (await readdir(dir)).filter((name) => name.startsWith("chunk-") && name.endsWith(".mp3")).sort();
+    if (files.length === 0) {
+      return [{ buffer, mimeType: asGeminiMime(mimeType), offsetMs: 0 }];
+    }
+    return Promise.all(
+      files.map(async (file, index) => ({
+        buffer: await readFile(path.join(dir, file)),
+        mimeType: "audio/mpeg",
+        offsetMs: index * CHUNK_SECONDS * 1000,
+      }))
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function unifyChunkSpeakers(ai: GoogleGenAI, chunks: MeetingSegment[][]): Promise<MeetingSegment[]> {
+  if (chunks.length === 1) return chunks[0];
+
+    const labeled = chunks
+      .map((segments, chunkIndex) => {
+        const lines = segments
+          .map(
+            (segment, i) =>
+              `[c${chunkIndex}:${i}] ${segment.speaker} ${segment.startMs}-${segment.endMs}: ${segment.text}`
+          )
+          .join("\n");
+        return `--- DALIS ${chunkIndex + 1} ---\n${lines}`;
+      })
+      .join("\n\n");
+
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: `Sujunk kelių dalių transkripciją į vieną kalbėtojų sistemą.
+Kiekviena dalis turi SAVO SPEAKER_N — tas pats žmogus gretimoje dalyje gali būti kitu numeriu.
+Priskirk visam pokalbiui nuoseklius SPEAKER_1..SPEAKER_${MAX_SPEAKERS}.
+Grąžink JSON: {"map":[{"chunk":0,"index":0,"speaker":"SPEAKER_1"}]}
+map turi turėti visus [cX:Y] įrašus.
+
+${labeled}`,
+        config: { responseMimeType: "application/json", temperature: 0 },
+      });
+
+      const parsed = JSON.parse(response.text ?? "{}") as {
+        map?: Array<{ chunk?: number; index?: number; speaker?: string }>;
+      };
+      const lookup = new Map<string, SpeakerId>();
+      for (const item of parsed.map ?? []) {
+        if (typeof item.chunk === "number" && typeof item.index === "number") {
+          lookup.set(`${item.chunk}:${item.index}`, normalizeSpeaker(item.speaker, item.index));
+        }
+      }
+
+      const merged: MeetingSegment[] = [];
+      chunks.forEach((segments, chunkIndex) => {
+        segments.forEach((segment, index) => {
+          merged.push({
+            ...segment,
+            speaker: lookup.get(`${chunkIndex}:${index}`) ?? segment.speaker,
+          });
+        });
+      });
+      return mergeAdjacent(merged);
+    } catch {
+      return mergeAdjacent(chunks.flat());
+    }
+}
+
+async function summarizeWithGemini(
+  ai: GoogleGenAI,
+  segments: MeetingSegment[],
+  participants?: string[]
+): Promise<MeetingSummary> {
+  const response = await ai.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: `${SUMMARY_PROMPT}${participantsHint(participants)}\n\nPOKALBIS:\n${transcriptFromSegments(segments)}`,
+    config: {
+      responseMimeType: "application/json",
+      temperature: 0.2,
+    },
+  });
+  return parseSummary(response.text ?? "");
 }
 
 async function processWithGeminiFlash(
@@ -270,10 +370,11 @@ async function processWithGeminiFlash(
       {
         parts: [
           {
-            text: `Transkribuok šį lietuvišką susitikimo įrašą.
-Atskirk du balsus: SPEAKER_1 ir SPEAKER_2 pagal tai, kas kalba — ne pagal sakinių eilę, o pagal balsą.
+            text: `Transkribuok šį lietuvišką susitikimo įrašą (gali trukti iki valandos, keli žmonės kambaryje).
+Atskirk balsus SPEAKER_1, SPEAKER_2, SPEAKER_3... iki SPEAKER_${MAX_SPEAKERS} pagal tai, kas kalba — ne pagal sakinių eilę, o pagal balsą.
 Jei girdėti tik vienas balsas, visus segmentus žymėk SPEAKER_1.
-Tada parašyk viso pokalbio aprašymą lietuviškai: sutrumpink, bet aprasyk viską, kas buvo pasakyta.
+Tada parašyk viso pokalbio aprašymą lietuviškai: sutrumpink, bet aprašyk viską, kas buvo pasakyta.
+${participantsHint(input.participants)}
 ${hint}
 
 Grąžink tik JSON:
@@ -281,7 +382,7 @@ Grąžink tik JSON:
   "segments": [{"speaker":"SPEAKER_1","text":"...","startMs":0,"endMs":4000}],
   "summary": {
     "title": "...",
-    "narrative": "2–5 pastraipos",
+    "narrative": "3–8 pastraipos",
     "decisions": [],
     "nextSteps": []
   }
@@ -304,7 +405,7 @@ Grąžink tik JSON:
 
   const segments = mapUnknownSpeakers(
     (parsed.segments ?? []).map((segment, index) => ({
-      speaker: segment.speaker ?? (index % 2 === 0 ? "SPEAKER_1" : "SPEAKER_2"),
+      speaker: segment.speaker ?? speakerId((index % MAX_SPEAKERS) + 1),
       text: segment.text ?? "",
       startMs: Number(segment.startMs) || 0,
       endMs: Number(segment.endMs) || 0,
@@ -327,8 +428,57 @@ Grąžink tik JSON:
     language: "lt",
     durationMs: input.durationMs,
     speakerCount: uniqueSpeakers(segments),
-    note: "Naudotas Gemini Flash garso supratimas (atsarginis kelias).",
+    note: "Naudotas Gemini Flash garso supratimas (atsarginis kelias ilgam įrašui).",
   };
+}
+
+async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
+  const apiKey = getGeminiKey();
+  if (!apiKey) throw new Error("Trūksta GEMINI_API_KEY.");
+
+  const ai = new GoogleGenAI({ apiKey });
+  const chunks = await splitAudioChunks(input.buffer, input.mimeType, input.durationMs);
+
+  try {
+    const transcribedChunks: MeetingSegment[][] = [];
+    for (const chunk of chunks) {
+      const transcribed = await transcribeWithGeminiRest(apiKey, {
+        mimeType: chunk.mimeType,
+        data: chunk.buffer.toString("base64"),
+      });
+      const segments = extractGeminiTurns(transcribed).map((segment) => ({
+        ...segment,
+        startMs: segment.startMs + chunk.offsetMs,
+        endMs: segment.endMs + chunk.offsetMs,
+      }));
+      if (segments.length > 0) transcribedChunks.push(segments);
+    }
+
+    if (transcribedChunks.length === 0) {
+      throw new Error("Tuščia transkripcija.");
+    }
+
+    const segments = await unifyChunkSpeakers(ai, transcribedChunks);
+    const summary = await summarizeWithGemini(ai, segments, input.participants);
+    return {
+      segments,
+      summary,
+      provider: "gemini",
+      language: "lt",
+      durationMs: input.durationMs,
+      speakerCount: uniqueSpeakers(segments),
+      note:
+        chunks.length > 1
+          ? "Ilgas įrašas padalytas į dalis, kad balsai būtų skiriami visą valandą."
+          : undefined,
+    };
+  } catch (error) {
+    console.warn("Gemini Transcribe nepavyko, bandoma Flash su garsu:", error);
+    return processWithGeminiFlash(ai, input, {
+      mimeType: asGeminiMime(input.mimeType),
+      data: input.buffer.toString("base64"),
+    });
+  }
 }
 
 async function processWithGroq(input: AudioInput): Promise<MeetingResult> {
@@ -361,10 +511,13 @@ async function processWithGroq(input: AudioInput): Promise<MeetingResult> {
 
   const fullText = transcription.text?.trim() || numbered;
   if (!fullText) {
-    throw new Error("Whisper negrąžino teksto. Įrašas gali būti per tylus.");
+    throw new Error("Whisper negrąžino teksto. Įrašas gali būti per tylus. Padėkite telefoną ar kompiuterį arčiau kalbančiųjų.");
   }
 
   const captionHint = input.liveCaption ? `\nPapildomos gyvos antraštės: ${input.liveCaption}` : "";
+  const expected = input.participants?.filter(Boolean).length
+    ? `Dalyvių sąraše ${input.participants.filter(Boolean).length} žmonės.`
+    : `Kambaryje gali būti iki ${MAX_SPEAKERS} kalbėtojų.`;
 
   const completion = await groq.chat.completions.create({
     model: "llama-3.3-70b-versatile",
@@ -373,11 +526,11 @@ async function processWithGroq(input: AudioInput): Promise<MeetingResult> {
     messages: [
       {
         role: "system",
-        content: `Tu skiri dviejų žmonių lietuvišką pokalbį ir rašai susitikimo aprašymą.
-Whisper transkripcija NETURI balsų žymių. Priskirk SPEAKER_1 ir SPEAKER_2 pagal pokalbio eigą: klausimai ir atsakymai, kreipiniai, stilius, persidengiančios mintys.
-Jei akivaizdžiai kalba vienas žmogus, visur SPEAKER_1.
-Visas tekstas — lietuvių kalba.
+        content: `Tu skiri kelių žmonių lietuvišką pokalbį ir rašai susitikimo aprašymą.
+Whisper transkripcija NETURI balsų žymių. Priskirk SPEAKER_1..SPEAKER_${MAX_SPEAKERS} pagal pokalbio eigą.
+${expected}
 ${SUMMARY_PROMPT}
+${participantsHint(input.participants)}
 
 Papildomai JSON turi turėti segments masyvą su visomis Whisper atkarpomis:
 {"segments":[{"index":0,"speaker":"SPEAKER_1"}], "title":"...","narrative":"...","decisions":[],"nextSteps":[]}`,
@@ -409,9 +562,9 @@ Papildomai JSON turi turėti segments masyvą su visomis Whisper atkarpomis:
   }
 
   const segments = mapUnknownSpeakers(
-    (whisperSegments.length > 0
+    whisperSegments.length > 0
       ? whisperSegments.map((segment, index) => ({
-          speaker: speakerMap[index] ?? (index % 2 === 0 ? "SPEAKER_1" : "SPEAKER_2"),
+          speaker: speakerMap[index] ?? speakerId((index % MAX_SPEAKERS) + 1),
           text: segment.text ?? "",
           startMs: Math.round((segment.start ?? 0) * 1000),
           endMs: Math.round((segment.end ?? 0) * 1000),
@@ -423,7 +576,7 @@ Papildomai JSON turi turėti segments masyvą su visomis Whisper atkarpomis:
             startMs: 0,
             endMs: input.durationMs,
           },
-        ])
+        ]
   );
 
   return {
@@ -433,7 +586,7 @@ Papildomai JSON turi turėti segments masyvą su visomis Whisper atkarpomis:
     language: "lt",
     durationMs: input.durationMs,
     speakerCount: uniqueSpeakers(segments),
-    note: "Groq Whisper neturi tikro balsų atskyrimo. Kalbėtojai priskirti pagal pokalbio eigą — jei reikia tikslaus balso atskyrimo, pridėkite nemokamą Gemini raktą.",
+    note: "Groq Whisper neturi tikro balsų atskyrimo. Kalbėtojai priskirti pagal pokalbio eigą — tikslesniam balsui naudokite Gemini raktą.",
   };
 }
 

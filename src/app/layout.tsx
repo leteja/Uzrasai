@@ -14,9 +14,9 @@ const newsreader = Newsreader({
 });
 
 export const metadata: Metadata = {
-  title: "Du balsai — susitikimų užrašai lietuviškai",
+  title: "Užrašai — susitikimų pokalbiai lietuviškai",
   description:
-    "Įrašykite susitikimą, atskirkite du kalbėtojus ir gaukite viso pokalbio aprašymą lietuvių kalba.",
+    "Įrašykite kambario susitikimą, atskirkite kelis kalbėtojus ir gaukite viso pokalbio aprašymą lietuvių kalba.",
 };
 
 export default function RootLayout({

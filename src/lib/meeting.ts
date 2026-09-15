@@ -1,4 +1,8 @@
-export type SpeakerId = "SPEAKER_1" | "SPEAKER_2";
+export type SpeakerId = `SPEAKER_${number}`;
+
+export const MAX_SPEAKERS = 8;
+export const MAX_RECORDING_MS = 70 * 60 * 1000;
+export const TARGET_MEETING_MS = 60 * 60 * 1000;
 
 export type MeetingSegment = {
   speaker: SpeakerId;
@@ -24,17 +28,49 @@ export type MeetingResult = {
   note?: string;
 };
 
+export type SavedMeeting = {
+  id: string;
+  createdAt: string;
+  participants: string[];
+  speakerNames: Record<string, string>;
+  markdown: string;
+  result: MeetingResult;
+};
+
+export type MeetingListItem = {
+  id: string;
+  createdAt: string;
+  title: string;
+  durationMs: number;
+  speakerCount: number;
+};
+
 export type ProviderStatus = {
   gemini: boolean;
   groq: boolean;
+  resend: boolean;
   ready: boolean;
   preferred: "gemini" | "groq" | "demo";
+  defaultEmail: string;
 };
 
-export const SPEAKER_LABELS: Record<SpeakerId, string> = {
-  SPEAKER_1: "Kalbėtojas 1",
-  SPEAKER_2: "Kalbėtojas 2",
-};
+export function speakerId(index: number): SpeakerId {
+  const n = Math.min(MAX_SPEAKERS, Math.max(1, index));
+  return `SPEAKER_${n}`;
+}
+
+export function speakerNumber(id: SpeakerId | string): number {
+  const match = String(id).match(/(\d+)/);
+  return match ? Number(match[1]) : 1;
+}
+
+export function defaultSpeakerLabel(id: SpeakerId | string): string {
+  return `Kalbėtojas ${speakerNumber(id)}`;
+}
+
+export function listSpeakers(count: number): SpeakerId[] {
+  return Array.from({ length: Math.max(1, Math.min(MAX_SPEAKERS, count)) }, (_, i) => speakerId(i + 1));
+}
 
 export function parseOffsetMs(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -48,23 +84,12 @@ export function parseOffsetMs(value: unknown): number {
 }
 
 export function normalizeSpeaker(label: string | undefined, index = 0): SpeakerId {
-  const value = (label ?? "").toLowerCase();
-  if (
-    value.includes("2") ||
-    value.includes("b") ||
-    value.includes("two") ||
-    value.endsWith("_1") === false && (value.includes("spk_2") || value.includes("speaker_2"))
-  ) {
-    if (value.includes("1") && !value.includes("2")) return "SPEAKER_1";
-    if (value.includes("2") || value.includes("two") || value.includes("b")) return "SPEAKER_2";
+  const match = (label ?? "").match(/(\d+)/);
+  if (match) {
+    const n = Number(match[1]);
+    return speakerId(n === 0 ? 1 : n);
   }
-  if (value.includes("2") || value.includes("two") || /\bspk[_-]?2\b/.test(value) || /speaker[_-]?2/.test(value) || /kalb[eė]tojas\s*2/.test(value)) {
-    return "SPEAKER_2";
-  }
-  if (value.includes("1") || value.includes("one") || /spk[_-]?1/.test(value) || /speaker[_-]?0/.test(value) || /kalb[eė]tojas\s*1/.test(value)) {
-    return "SPEAKER_1";
-  }
-  return index % 2 === 0 ? "SPEAKER_1" : "SPEAKER_2";
+  return speakerId((index % MAX_SPEAKERS) + 1);
 }
 
 export function formatClock(ms: number): string {
@@ -80,27 +105,33 @@ export function formatClock(ms: number): string {
 
 export function formatTimestamp(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
-  const minutes = Math.floor(total / 60);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
   const seconds = total % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-export function toMarkdown(
-  result: MeetingResult,
-  names: Record<SpeakerId, string>
-): string {
+export function speakerName(id: SpeakerId | string, names: Record<string, string>): string {
+  return names[id]?.trim() || defaultSpeakerLabel(id);
+}
+
+export function toMarkdown(result: MeetingResult, names: Record<string, string>, participants: string[] = []): string {
   const date = new Date().toLocaleString("lt-LT");
   const lines = [
     `# ${result.summary.title}`,
     "",
     `Data: ${date}`,
     `Trukmė: ${formatClock(result.durationMs)}`,
-    "",
-    "## Susitikimo aprašymas",
-    "",
-    result.summary.narrative,
-    "",
   ];
+
+  if (participants.filter(Boolean).length > 0) {
+    lines.push(`Dalyviai: ${participants.filter(Boolean).join(", ")}`);
+  }
+
+  lines.push("", "## Susitikimo aprašymas", "", result.summary.narrative, "");
 
   if (result.summary.decisions.length > 0) {
     lines.push("## Nutarimai", "");
@@ -114,9 +145,9 @@ export function toMarkdown(
     lines.push("");
   }
 
-  lines.push("## Pokalbis pagal kalbėtojus", "");
+  lines.push("## Visas pokalbis pagal kalbėtojus", "");
   for (const segment of result.segments) {
-    lines.push(`**${names[segment.speaker]}** (${formatTimestamp(segment.startMs)})`);
+    lines.push(`**${speakerName(segment.speaker, names)}** (${formatTimestamp(segment.startMs)})`);
     lines.push(segment.text);
     lines.push("");
   }
@@ -124,64 +155,91 @@ export function toMarkdown(
   return lines.join("\n");
 }
 
+export const SPEAKER_PALETTE = [
+  { bg: "oklch(0.45 0.09 195 / 0.14)", fg: "oklch(0.38 0.09 195)" },
+  { bg: "oklch(0.58 0.13 70 / 0.16)", fg: "oklch(0.5 0.12 70)" },
+  { bg: "oklch(0.5 0.12 310 / 0.14)", fg: "oklch(0.42 0.12 310)" },
+  { bg: "oklch(0.48 0.11 145 / 0.14)", fg: "oklch(0.4 0.1 145)" },
+  { bg: "oklch(0.55 0.14 25 / 0.14)", fg: "oklch(0.48 0.13 25)" },
+  { bg: "oklch(0.5 0.1 250 / 0.14)", fg: "oklch(0.4 0.1 250)" },
+  { bg: "oklch(0.52 0.08 40 / 0.16)", fg: "oklch(0.44 0.08 40)" },
+  { bg: "oklch(0.46 0.08 200 / 0.16)", fg: "oklch(0.38 0.08 200)" },
+] as const;
+
+export function speakerTone(id: SpeakerId | string) {
+  return SPEAKER_PALETTE[(speakerNumber(id) - 1) % SPEAKER_PALETTE.length];
+}
+
 export const DEMO_MEETING: MeetingResult = {
   provider: "demo",
   language: "lt",
-  durationMs: 187000,
-  speakerCount: 2,
-  note: "Tai pavyzdinis susitikimas — tikras įrašas apdorojamas, kai pridėsite nemokamą API raktą.",
+  durationMs: 312000,
+  speakerCount: 4,
+  note: "Pavyzdinis kelių žmonių susitikimas. Tikras įrašas veikia, kai įrašysite Gemini raktą į .env.local.",
   segments: [
     {
       speaker: "SPEAKER_1",
       startMs: 0,
-      endMs: 22000,
-      text: "Sveikas, pradėkime savaitės susitikimą. Noriu perbėgti trečio ketvirčio kampaniją, biudžetą ir kas stringa svetainėje.",
+      endMs: 28000,
+      text: "Pradėkime. Šiandien keturiese: kampanija, mokėjimas ir kas spėja iki ketvirtadienio. Kas nori pradėti nuo svetainės?",
     },
     {
       speaker: "SPEAKER_2",
-      startMs: 22000,
-      endMs: 48000,
-      text: "Gerai. Praėjusią savaitę baigiau naują registracijos langą. Teste konversija pakilo nuo 2,1 iki 3,4 procento, bet mokėjimo žingsnyje vis dar krenta apie ketvirtadalis žmonių.",
+      startMs: 28000,
+      endMs: 62000,
+      text: "Aš. Registracija teste pakilo nuo 2,1 iki 3,4 procento, bet mokėjimo žingsnyje vis dar pasitraukia apie ketvirtadalis. Siūlau šią savaitę neliesti naujų funkcijų.",
+    },
+    {
+      speaker: "SPEAKER_3",
+      startMs: 62000,
+      endMs: 98000,
+      text: "Sutinku dėl prioriteto. Iš finansų pusės: jei adresą kortelėms padarysime neprivalomą, sąskaitų faktūrų juridiniams asmenims neliesti. Bankas vis dar tvirtina 3-D Secure lietuvišką klaidą.",
+    },
+    {
+      speaker: "SPEAKER_4",
+      startMs: 98000,
+      endMs: 132000,
+      text: "Reklamos naujo kūrinio nepaleisiu, kol krepšelis nestabilus. Dabartinį Facebook skelbimą galiu palikti, jei biudžetas nedidės. Duokite signalą, kai nutraukimas nukris bent iki 15 procentų.",
     },
     {
       speaker: "SPEAKER_1",
-      startMs: 48000,
-      endMs: 79000,
-      text: "Tai svarbiausia skylė. Siūlau šią savaitę palikti ramybėje naujas funkcijas ir sutvarkyti mokėjimą. Ar spėtum iki ketvirtadienio paruošti trumpesnį kelią — be privalomo adreso, jei žmogus moka kortele?",
+      startMs: 132000,
+      endMs: 176000,
+      text: "Tada biudžetas: 70 procentų taisymui ir testams, 20 esamai reklamai, 10 rezervui. Rūta — mokėjimo kelias iki ketvirtadienio 16 val. Tomas — bankas. Justė laukia matavimų. Gerai?",
     },
     {
       speaker: "SPEAKER_2",
-      startMs: 79000,
-      endMs: 112000,
-      text: "Taip, jei neliestume sąskaitų faktūrų. Kortele mokantiems adresą padarysiu neprivalomą, o įmonėms paliksiu kaip yra. Dar reikia iš banko patvirtinimo, kad 3-D Secure langas lietuviškai nerodo klaidos.",
+      startMs: 176000,
+      endMs: 214000,
+      text: "Gerai. Iki ketvirtadienio atsiųsiu trumpesnę mokėjimo eigą ir lentelę: kur krenta žmonės.",
     },
     {
-      speaker: "SPEAKER_1",
-      startMs: 112000,
-      endMs: 146000,
-      text: "Biudžetą tada skiriame taip: 70 procentų — mokėjimo taisymui ir testams, 20 — Facebook reklamai su tuo pačiu tekstu, 10 paliekame rezervui. Reklamos naujo kūrinio nerašome, kol konversija nestabili.",
+      speaker: "SPEAKER_3",
+      startMs: 214000,
+      endMs: 248000,
+      text: "Aš parašysiu bankui šiandien. Jei atsakymo nebus iki trečiadienio, eisime su atsarginiu langu be jų šablono.",
     },
     {
-      speaker: "SPEAKER_2",
-      startMs: 146000,
-      endMs: 187000,
-      text: "Susitariame. Aš iki ketvirtadienio 16 val. atsiųsiu pataisytą mokėjimo eigą ir trumpą matavimų lentelę. Tu tada paleidi reklamą tik jei krepšelio nutraukimas krenta bent iki 15 procentų.",
+      speaker: "SPEAKER_4",
+      startMs: 248000,
+      endMs: 312000,
+      text: "Supratau. Reklamos nekeičiu, tik pauzė jei matavimai blogesni. Po ketvirtadienio susirašom trumpai raštu, be naujo skambučio.",
     },
   ],
   summary: {
-    title: "Savaitės susitikimas: mokėjimo kelias ir Q3 kampanija",
+    title: "Keturių žmonių susitikimas: mokėjimo kelias ir Q3 kampanija",
     narrative:
-      "Susitikime du žmonės aptarė trečio ketvirčio kampaniją ir svetainės konversiją. Kalbėtojas 1 pradėjo nuo savaitės prioritetų: kampanija, biudžetas ir tai, kas stringa svetainėje. Kalbėtojas 2 pranešė, kad naujas registracijos langas teste pakėlė konversiją nuo 2,1 iki 3,4 procento, tačiau mokėjimo žingsnyje vis dar pasitraukia apie ketvirtadalis lankytojų.\n\nAbi pusės sutarė, kad šią savaitę naujų funkcijų nepridedama — visą dėmesį skirti mokėjimo eigai. Kalbėtojas 1 paprašė iki ketvirtadienio paruošti trumpesnį kelią kortelių mokėtojams, be privalomo adreso. Kalbėtojas 2 sutiko, jei liks nepaliestos sąskaitos faktūros: kortelėms adresas taps neprivalomas, įmonėms tvarka nesikeis. Taip pat reikia patikrinti, ar banko 3-D Secure langas lietuviškai neberodo klaidos.\n\nBiudžetas paskirstytas taip: 70 procentų mokėjimo taisymui ir testams, 20 procentų esamai Facebook reklamai, 10 procentų rezervui. Naujo reklamos kūrinio nebus, kol konversija nestabili. Kalbėtojas 2 iki ketvirtadienio 16 val. atsiųs pataisytą mokėjimo eigą ir matavimų lentelę. Kalbėtojas 1 reklamą paleis tik tada, jei krepšelio nutraukimas nukris bent iki 15 procentų.",
+      "Kambaryje kalbėjo keturi žmonės apie trečio ketvirčio kampaniją ir svetainės konversiją. Kalbėtojas 1 pradėjo ir pasiūlė laikytis vieno prioriteto iki ketvirtadienio. Kalbėtojas 2 pranešė, kad registracija teste pakilo nuo 2,1 iki 3,4 procento, tačiau mokėjimo žingsnyje vis dar pasitraukia apie ketvirtadalis lankytojų, todėl naujų funkcijų šią savaitę nepridedama.\n\nKalbėtojas 3 (finansai) sutiko, kad kortelių mokėtojams adresas gali tapti neprivalomas, jei juridinių asmenų sąskaitos faktūros lieka kaip yra, ir priminė neišspręstą banko 3-D Secure lietuvišką klaidą. Kalbėtojas 4 (reklama) atsisakė naujo kūrinio, kol krepšelis nestabilus, ir paliko esamą Facebook skelbimą be didesnio biudžeto.\n\nBiudžetas paskirstytas 70 / 20 / 10: taisymai ir testai, esama reklama, rezervas. Kalbėtojas 2 iki ketvirtadienio 16 val. parengia trumpesnę mokėjimo eigą ir matavimų lentelę. Kalbėtojas 3 tą pačią dieną rašo bankui ir, jei atsakymo nebus iki trečiadienio, eina su atsarginiu langu. Kalbėtojas 4 reklamą keičia tik pagal matavimus; kitas sinchronas — raštu po ketvirtadienio.",
     decisions: [
       "Šią savaitę nepridedama naujų funkcijų — prioritetas mokėjimo žingsnis.",
-      "Kortelių mokėtojams adresas tampa neprivalomas; įmonių sąskaitos faktūros nesikeičia.",
+      "Kortelių mokėtojams adresas neprivalomas; juridinių asmenų sąskaitos nesikeičia.",
       "Biudžetas: 70% taisymui ir testams, 20% esamai Facebook reklamai, 10% rezervui.",
-      "Reklama paleidžiama tik jei krepšelio nutraukimas nukrenta bent iki 15%.",
+      "Naujo reklamos kūrinio nebus, kol krepšelio nutraukimas nenukris bent iki 15%.",
     ],
     nextSteps: [
-      "Kalbėtojas 2 iki ketvirtadienio 16 val. parengia trumpesnę mokėjimo eigą ir matavimų lentelę.",
-      "Kalbėtojas 2 patikrina 3-D Secure lango lietuvišką klaidą su banku.",
-      "Kalbėtojas 1 laukia matavimų ir tik tada paleidžia reklamą.",
+      "Kalbėtojas 2 iki ketvirtadienio 16 val. atsiunčia mokėjimo eigą ir matavimų lentelę.",
+      "Kalbėtojas 3 šiandien rašo bankui dėl 3-D Secure; trečiadienį — atsarginis variantas.",
+      "Kalbėtojas 4 laukia matavimų ir po ketvirtadienio parašo trumpą ataskaitą raštu.",
     ],
   },
 };
