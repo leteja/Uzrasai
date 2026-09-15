@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   FileAudio,
+  FileText,
   Loader2,
   Mail,
   Mic,
@@ -20,6 +21,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import { Waveform } from "@/components/waveform";
 import { SetupGuide } from "@/components/setup-guide";
 import { ProtocolDocument } from "@/components/protocol-document";
@@ -42,6 +44,12 @@ const PROCESS_STEPS = [
 ];
 
 const EMAIL_KEY = "uzrasai-email";
+
+const SUMMARY_PRESETS = [
+  { label: "Trumpas", text: "Trumpas aprašymas, 1–2 pastraipos, tik esmė." },
+  { label: "Detalus", text: "Detalus aprašymas su visais faktais, skaičiais ir datomis." },
+  { label: "Punktais", text: "Rašyk punktais, ne pastraipomis." },
+] as const;
 
 function friendlyFetchError(message: string): string {
   if (message === "Failed to fetch" || message.includes("NetworkError") || message.includes("Load failed")) {
@@ -77,6 +85,7 @@ export function MeetingStudio() {
   const [saved, setSaved] = useState<SavedMeeting | null>(null);
   const [archive, setArchive] = useState<MeetingListItem[]>([]);
   const [expectedCount, setExpectedCount] = useState<number | null>(null);
+  const [summaryInstructions, setSummaryInstructions] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [emailTo, setEmailTo] = useState("");
   const [emailState, setEmailState] = useState<"idle" | "sending" | "sent" | "error">("idle");
@@ -169,6 +178,7 @@ export function MeetingStudio() {
       form.append("durationMs", String(durationMs));
       form.append("participants", "[]");
       form.append("expectedCount", String(expectedCount ?? 0));
+      if (summaryInstructions.trim()) form.append("summaryInstructions", summaryInstructions.trim());
       if (liveCaption) form.append("liveCaption", liveCaption);
 
       const response = await fetch("/api/process", { method: "POST", body: form });
@@ -218,7 +228,9 @@ export function MeetingStudio() {
   async function openArchive(id: string) {
     const response = await fetch(`/api/meetings/${id}`);
     if (!response.ok) return;
-    setSaved((await response.json()) as SavedMeeting);
+    const meeting = (await response.json()) as SavedMeeting;
+    setSaved(meeting);
+    setSummaryInstructions(meeting.summaryInstructions ?? "");
     setError(null);
   }
 
@@ -336,6 +348,51 @@ export function MeetingStudio() {
                   {expectedCount === null ? "Nepateikta" : `${expectedCount} ${peopleWord(expectedCount)}`}
                 </p>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="size-4" />
+                Aprašymo instrukcijos
+              </CardTitle>
+              <CardDescription>
+                Parašykite, kokio aprašymo norite: trumpo ar detalaus, punktais ar pastraipomis, ką pridėti ar
+                praleisti.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {SUMMARY_PRESETS.map((preset) => (
+                  <Button
+                    key={preset.label}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={processing || recorder.isRecording}
+                    onClick={() => setSummaryInstructions(preset.text)}
+                  >
+                    {preset.label}
+                  </Button>
+                ))}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="summary-instructions">Jūsų nurodymai</Label>
+                <Textarea
+                  id="summary-instructions"
+                  value={summaryInstructions}
+                  disabled={processing || recorder.isRecording}
+                  onChange={(event) => setSummaryInstructions(event.target.value)}
+                  placeholder="Pvz.: Trumpas aprašymas. Pridėkite biudžeto skaičius. Nepaminėkite asmeninių pokalbių. Rašyk punktais."
+                  className="min-h-28 leading-6"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {summaryInstructions.trim()
+                  ? "Instrukcijos bus pritaikytos generuojant aprašymą."
+                  : "Palikite tuščią — bus naudojamas numatytasis aprašymas."}
+              </p>
             </CardContent>
           </Card>
 

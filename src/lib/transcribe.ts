@@ -28,7 +28,7 @@ Gavai pažodžiui transkribuotą pokalbį su kalbėtojų žymėmis. Pokalbyje ga
 
 SVARBU:
 - Nekartok transkripto pažodžiui ar beveik pažodžiui. Parašyk savo žodžiais, sutrumpintai ir struktūruotai.
-- Rašyk 3–8 pastraipomis (ne punktais, ne dialogo forma).
+- Rašyk 3–8 pastraipomis (ne punktais, ne dialogo forma), nebent naudotojo instrukcijos nurodo kitaip.
 - Sujunk pasikartojimus, bet nepraleisk esminių faktų, skaičių, datų ir sprendimų.
 - Nerašyk, ko pokalbyje nebuvo.
 - Jei žinai kalbėtojo vardą — naudok jį aprašyme vietoje „Kalbėtojas N“.
@@ -48,6 +48,7 @@ type AudioInput = {
   liveCaption?: string;
   participants?: string[];
   expectedCount?: number;
+  summaryInstructions?: string;
 };
 
 function emptySummary(): MeetingSummary {
@@ -166,6 +167,12 @@ function namesHint(names: Record<string, string>): string {
   if (entries.length === 0) return "";
   const lines = entries.map(([speaker, name]) => `${speaker} → ${name}`).join("\n");
   return `\nŽinomi kalbėtojų vardai (naudok aprašyme):\n${lines}\n`;
+}
+
+function summaryInstructionsHint(instructions?: string): string {
+  const text = instructions?.trim();
+  if (!text) return "";
+  return `\nNAUDOTOJO INSTRUKCIJOS (laikykitės jų pirmiausia, jei nesikerta su faktais iš transkripto):\n${text}\n`;
 }
 
 function uniqueSpeakers(segments: MeetingSegment[]): number {
@@ -466,11 +473,12 @@ async function summarizeWithGemini(
   segments: MeetingSegment[],
   participants?: string[],
   expectedCount?: number,
-  speakerNames: Record<string, string> = {}
+  speakerNames: Record<string, string> = {},
+  summaryInstructions?: string
 ): Promise<MeetingSummary> {
   const text = await geminiJsonText(
     ai,
-    `${SUMMARY_PROMPT}${namesHint(speakerNames)}${attendeesHint(expectedCount)}\n\nPOKALBIS:\n${transcriptFromSegments(segments, speakerNames)}`
+    `${SUMMARY_PROMPT}${summaryInstructionsHint(summaryInstructions)}${namesHint(speakerNames)}${attendeesHint(expectedCount)}\n\nPOKALBIS:\n${transcriptFromSegments(segments, speakerNames)}`
   );
   return parseSummary(text);
 }
@@ -489,7 +497,7 @@ async function processWithGeminiFlash(
 Atskirk balsus SPEAKER_1, SPEAKER_2, SPEAKER_3... iki SPEAKER_${MAX_SPEAKERS} pagal tai, kas kalba — ne pagal sakinių eilę, o pagal balsą.
 Jei girdėti tik vienas balsas, visus segmentus žymėk SPEAKER_1.
 Tada parašyk viso pokalbio aprašymą lietuviškai: sutrumpink, bet aprašyk viską, kas buvo pasakyta.
-${attendeesHint(input.expectedCount)}
+${summaryInstructionsHint(input.summaryInstructions)}${attendeesHint(input.expectedCount)}
 ${hint}
 
 Grąžink tik JSON:
@@ -564,7 +572,14 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
     const speakerNames = await inferSpeakerNames(segments);
     let summary: MeetingSummary;
     try {
-      summary = await summarizeWithGemini(ai, segments, input.participants, input.expectedCount, speakerNames);
+      summary = await summarizeWithGemini(
+        ai,
+        segments,
+        input.participants,
+        input.expectedCount,
+        speakerNames,
+        input.summaryInstructions
+      );
     } catch (error) {
       console.warn("Santraukos generavimas nepavyko, naudojamas supaprastintas aprašymas:", error);
       summary = fallbackSummary(segments, speakerNames);
@@ -636,7 +651,7 @@ async function processWithGroq(input: AudioInput): Promise<MeetingResult> {
         content: `Tu skiri kelių žmonių lietuvišką pokalbį ir rašai susitikimo aprašymą.
 Whisper transkripcija NETURI balsų žymių. Priskirk SPEAKER_1..SPEAKER_${MAX_SPEAKERS} tik tiems, kurie kalba.
 ${SUMMARY_PROMPT}
-${attendeesHint(input.expectedCount)}
+${summaryInstructionsHint(input.summaryInstructions)}${attendeesHint(input.expectedCount)}
 
 Papildomai JSON turi turėti segments masyvą su visomis Whisper atkarpomis:
 {"segments":[{"index":0,"speaker":"SPEAKER_1"}], "title":"...","narrative":"..."}`,

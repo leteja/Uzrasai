@@ -37,6 +37,7 @@ export async function POST(request: Request) {
     const rawCount = Number(form.get("expectedCount") || 0);
     const expectedCount =
       Number.isFinite(rawCount) && rawCount > 0 ? Math.min(20, Math.max(1, Math.round(rawCount))) : 0;
+    const summaryInstructions = String(form.get("summaryInstructions") || "").trim().slice(0, 2000);
     const locked = String(form.get("locked") || "") === "true";
 
     const buffer = Buffer.from(await audio.arrayBuffer());
@@ -50,6 +51,7 @@ export async function POST(request: Request) {
       liveCaption: liveCaption || undefined,
       participants,
       expectedCount,
+      summaryInstructions: summaryInstructions || undefined,
     });
 
     const speakerNames = result.speakerNames ?? (await inferSpeakerNames(result.segments));
@@ -59,6 +61,7 @@ export async function POST(request: Request) {
       createdAt: new Date().toISOString(),
       participants: [],
       expectedCount,
+      summaryInstructions: summaryInstructions || undefined,
       speakerNames,
       locked,
       lockedAt: locked ? new Date().toISOString() : undefined,

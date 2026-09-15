@@ -21,6 +21,7 @@ export async function POST(request: Request) {
     createdAt: body.createdAt || new Date().toISOString(),
     participants: body.participants ?? [],
     expectedCount: body.expectedCount ?? 0,
+    summaryInstructions: body.summaryInstructions?.trim() || undefined,
     speakerNames: body.speakerNames ?? {},
     result: withSpeakerCount(body.result),
     locked,

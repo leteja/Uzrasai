@@ -34,6 +34,7 @@ export type SavedMeeting = {
   createdAt: string;
   participants: string[];
   expectedCount: number;
+  summaryInstructions?: string;
   speakerNames: Record<string, string>;
   markdown: string;
   result: MeetingResult;

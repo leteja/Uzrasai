@@ -124,6 +124,12 @@ export function ProtocolDocument({
               : `Prabilo ${result.speakerCount}`}
             {locked ? " · keisti negalima" : " · galite taisyti raides ir priskirti vardus"}
           </p>
+          {saved.summaryInstructions ? (
+            <p className="rounded-lg bg-muted/60 px-3 py-2 text-xs leading-5 text-muted-foreground">
+              <span className="font-medium text-foreground">Aprašymo instrukcijos: </span>
+              {saved.summaryInstructions}
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => void copySummary()}>
