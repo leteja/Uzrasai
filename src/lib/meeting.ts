@@ -58,6 +58,7 @@ export type ProviderStatus = {
   ready: boolean;
   preferred: "gemini" | "groq" | "demo";
   defaultEmail: string;
+  storage: "supabase" | "file";
 };
 
 export function speakerId(index: number): SpeakerId {

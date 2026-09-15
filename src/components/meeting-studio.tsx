@@ -111,6 +111,7 @@ export function MeetingStudio() {
           ready: false,
           preferred: "demo",
           defaultEmail: "",
+          storage: "file",
         })
       );
     void refreshArchive();
