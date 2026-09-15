@@ -139,7 +139,6 @@ export function toMarkdown(
   locked = false
 ): string {
   const date = new Date().toLocaleString("lt-LT");
-  const named = participants.filter(Boolean);
   const lines = [
     `# ${result.summary.title}`,
     "",
@@ -149,10 +148,13 @@ export function toMarkdown(
   ];
 
   if (expectedCount > 0) {
-    lines.push(`Kambaryje žmonių: ${expectedCount}. Prabilo: ${result.speakerCount}.`);
+    lines.push(`Dalyvių skaičius: ${expectedCount}. Prabilo: ${result.speakerCount}.`);
   }
-  if (named.length > 0) {
-    lines.push(`Žinomi vardai: ${named.join(", ")}`);
+  const assignedNames = Object.entries(names)
+    .filter(([, value]) => value.trim())
+    .map(([id, value]) => `${speakerName(id, names)} (${id})`);
+  if (assignedNames.length > 0) {
+    lines.push(`Prisistatė: ${assignedNames.join(", ")}`);
   }
 
   lines.push("", "## Susitikimo aprašymas", "", result.summary.narrative, "");

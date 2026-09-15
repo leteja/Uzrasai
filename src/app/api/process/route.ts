@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { processMeetingAudio } from "@/lib/transcribe";
+import { inferSpeakerNames, processMeetingAudio } from "@/lib/transcribe";
 import { saveMeeting } from "@/lib/store";
 import { publicGeminiError } from "@/lib/gemini";
 import { toMarkdown, type MeetingResult } from "@/lib/meeting";
@@ -53,17 +53,17 @@ export async function POST(request: Request) {
       expectedCount,
     });
 
-    const speakerNames: Record<string, string> = {};
+    const speakerNames = await inferSpeakerNames(result.segments);
 
     const saved = await saveMeeting({
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
-      participants,
+      participants: [],
       expectedCount,
       speakerNames,
       locked,
       lockedAt: locked ? new Date().toISOString() : undefined,
-      markdown: toMarkdown(result, speakerNames, participants, expectedCount, locked),
+      markdown: toMarkdown(result, speakerNames, [], expectedCount, locked),
       result,
     });
 

@@ -17,6 +17,7 @@ import {
   normalizeSpeaker,
   parseOffsetMs,
   speakerId,
+  uniqueSpeakerIds,
 } from "@/lib/meeting";
 
 const execFileAsync = promisify(execFile);
@@ -26,7 +27,7 @@ const SUMMARY_PROMPT = `Tu esi susitikimų sekretorius. Dirbi tik lietuvių kalb
 Gavai pažodžiui transkribuotą pokalbį su kalbėtojų žymėmis. Pokalbyje gali būti iki ${MAX_SPEAKERS} žmonių.
 Parašyk viso susitikimo aprašymą: sutrumpink pasikartojimus, bet nepraleisk to, kas buvo pasakyta.
 Nerašyk, ko pokalbyje nebuvo. Jei nutarimų ar darbų nėra, palik tuščius sąrašus.
-Vardus naudok tik jei jie pateikti dalyvių sąraše arba aiškiai pasakyti transkripte. Negalvok vardų.
+Vardus naudok tik jei kalbėtojas pats prisistato transkripte (pvz. „aš Alanas“). Tinka pravardė ar pareigos (direktorius, bosas), bet tikras vardas svarbesnis. Negalvok vardų.
 
 Grąžink tik JSON:
 {
@@ -143,14 +144,12 @@ function asGeminiMime(mimeType: string): string {
   return mimeType.split(";")[0] || "audio/webm";
 }
 
-function attendeesHint(participants?: string[], expectedCount?: number): string {
-  const names = (participants ?? []).map((name) => name.trim()).filter(Boolean);
-  const inRoom = Math.min(20, Math.max(expectedCount || 0, names.length, 1));
-  return `\nKambaryje sėdi ${inRoom} žmonių. Ne visi privalo kalbėti.
-Vardus rašyk TIK jei jie AIŠKIAI IŠTARTI transkripte (pvz. „aš Rūta“, „čia Tomas“).
-Jei ne visi kalbėtojai paminėjo vardą — neduok vardo NIEKAM. Palik SPEAKER_1, SPEAKER_2…
-Negalvok vardų ir nepriskirk iš sąrašo, jei transkripte to vardo nėra.
-${names.length ? `Sąrašas tik kaip užuomina, jei tas vardas girdimas: ${names.join(", ")}.` : ""}
+function attendeesHint(expectedCount?: number): string {
+  const inRoom = Math.min(20, Math.max(expectedCount || 1, 1));
+  return `\nKambaryje ${inRoom} dalyvių.
+Vardą ar pravardę naudok TIK jei kalbėtojas pats prisistato transkripte (pvz. „aš Alanas“, „čia direktorius“).
+Tikras vardas svarbesnis už pareigas ar pravardę (direktorius, bosas).
+Jei neprisistatė — naudok SPEAKER_1, SPEAKER_2…
 Balsus žymėk SPEAKER_1, SPEAKER_2, SPEAKER_3 ir t. t.`;
 }
 
@@ -391,7 +390,7 @@ async function summarizeWithGemini(
 ): Promise<MeetingSummary> {
   const text = await geminiJsonText(
     ai,
-    `${SUMMARY_PROMPT}${attendeesHint(participants, expectedCount)}\n\nPOKALBIS:\n${transcriptFromSegments(segments)}`
+    `${SUMMARY_PROMPT}${attendeesHint(expectedCount)}\n\nPOKALBIS:\n${transcriptFromSegments(segments)}`
   );
   return parseSummary(text);
 }
@@ -410,7 +409,7 @@ async function processWithGeminiFlash(
 Atskirk balsus SPEAKER_1, SPEAKER_2, SPEAKER_3... iki SPEAKER_${MAX_SPEAKERS} pagal tai, kas kalba — ne pagal sakinių eilę, o pagal balsą.
 Jei girdėti tik vienas balsas, visus segmentus žymėk SPEAKER_1.
 Tada parašyk viso pokalbio aprašymą lietuviškai: sutrumpink, bet aprašyk viską, kas buvo pasakyta.
-${attendeesHint(input.participants, input.expectedCount)}
+${attendeesHint(input.expectedCount)}
 ${hint}
 
 Grąžink tik JSON:
@@ -557,7 +556,7 @@ async function processWithGroq(input: AudioInput): Promise<MeetingResult> {
         content: `Tu skiri kelių žmonių lietuvišką pokalbį ir rašai susitikimo aprašymą.
 Whisper transkripcija NETURI balsų žymių. Priskirk SPEAKER_1..SPEAKER_${MAX_SPEAKERS} tik tiems, kurie kalba.
 ${SUMMARY_PROMPT}
-${attendeesHint(input.participants, input.expectedCount)}
+${attendeesHint(input.expectedCount)}
 
 Papildomai JSON turi turėti segments masyvą su visomis Whisper atkarpomis:
 {"segments":[{"index":0,"speaker":"SPEAKER_1"}], "title":"...","narrative":"...","decisions":[],"nextSteps":[]}`,
@@ -615,6 +614,36 @@ Papildomai JSON turi turėti segments masyvą su visomis Whisper atkarpomis:
     speakerCount: uniqueSpeakers(segments),
     note: "Groq Whisper neturi tikro balsų atskyrimo. Kalbėtojai priskirti pagal pokalbio eigą — tikslesniam balsui naudokite Gemini raktą.",
   };
+}
+
+export async function inferSpeakerNames(segments: MeetingSegment[]): Promise<Record<string, string>> {
+  const apiKey = getGeminiKey();
+  if (!apiKey || segments.length === 0) return {};
+
+  const speakers = uniqueSpeakerIds(segments);
+  const ai = new GoogleGenAI({ apiKey });
+
+  try {
+    const text = await geminiJsonText(
+      ai,
+      `Iš transkripcijos nustatyk kalbėtojų vardus TIK jei jie patys prisistato pokalbyje.
+Tinka pravardė ar pareigos (direktorius, bosas), bet tikras vardas turi pirmenybę prieš pareigas.
+Jei kalbėtojas neprisistatė — palik tuščią eilutę toje reikšmėje.
+Grąžink tik JSON objektą, raktai SPEAKER_1, SPEAKER_2 ir t. t.
+
+POKALBIS:
+${transcriptFromSegments(segments)}`
+    );
+    const parsed = JSON.parse(text) as Record<string, string>;
+    const names: Record<string, string> = {};
+    for (const speaker of speakers) {
+      const value = parsed[speaker]?.trim();
+      if (value) names[speaker] = value;
+    }
+    return names;
+  } catch {
+    return {};
+  }
 }
 
 export async function processMeetingAudio(input: AudioInput): Promise<MeetingResult> {

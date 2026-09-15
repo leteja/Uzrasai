@@ -31,17 +31,12 @@ import { useLiveCaptions } from "@/hooks/use-live-captions";
 import {
   MAX_RECORDING_MS,
   type MeetingListItem,
-  type MeetingResult,
   type ProviderStatus,
   type SavedMeeting,
-  type SpeakerId,
-  defaultSpeakerLabel,
   formatClock,
   formatTimestamp,
-  listSpeakers,
   speakerName,
   speakerTone,
-  toMarkdown,
 } from "@/lib/meeting";
 import { cn } from "@/lib/utils";
 
@@ -52,14 +47,8 @@ const PROCESS_STEPS = [
   "Saugoma",
 ];
 
-const PARTICIPANTS_KEY = "uzrasai-participants";
 const EMAIL_KEY = "uzrasai-email";
 const COUNT_KEY = "uzrasai-expected-count";
-
-function uniqueSpeakersFrom(result: MeetingResult): SpeakerId[] {
-  const ids = [...new Set(result.segments.map((segment) => segment.speaker))];
-  return ids.length > 0 ? ids : listSpeakers(result.speakerCount || 1);
-}
 
 function friendlyFetchError(message: string): string {
   if (message === "Failed to fetch" || message.includes("NetworkError") || message.includes("Load failed")) {
@@ -95,14 +84,12 @@ export function MeetingStudio() {
   const [saved, setSaved] = useState<SavedMeeting | null>(null);
   const [archive, setArchive] = useState<MeetingListItem[]>([]);
   const [expectedCount, setExpectedCount] = useState(6);
-  const [participants, setParticipants] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [emailTo, setEmailTo] = useState("");
   const [emailState, setEmailState] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [emailError, setEmailError] = useState<string | null>(null);
   const autoStopped = useRef(false);
-  const saveTimer = useRef<number | null>(null);
   const stopNowRef = useRef<(() => Promise<void>) | null>(null);
 
   const result = saved?.result ?? null;
@@ -112,15 +99,6 @@ export function MeetingStudio() {
     const storedCount = Number(localStorage.getItem(COUNT_KEY));
     if (Number.isFinite(storedCount) && storedCount >= 1) {
       setExpectedCount(Math.min(20, storedCount));
-    }
-    try {
-      const storedParticipants = localStorage.getItem(PARTICIPANTS_KEY);
-      if (storedParticipants) {
-        const parsed = JSON.parse(storedParticipants) as string[];
-        if (Array.isArray(parsed)) setParticipants(parsed);
-      }
-    } catch {
-      // ignore
     }
 
     void fetch("/api/status")
@@ -141,10 +119,6 @@ export function MeetingStudio() {
       );
     void refreshArchive();
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem(PARTICIPANTS_KEY, JSON.stringify(participants));
-  }, [participants]);
 
   useEffect(() => {
     localStorage.setItem(COUNT_KEY, String(expectedCount));
@@ -173,31 +147,6 @@ export function MeetingStudio() {
     if (response.ok) setArchive((await response.json()) as MeetingListItem[]);
   }
 
-  const cleanParticipants = participants.map((name) => name.trim()).filter(Boolean);
-
-  function queueNameSave(nextNames: Record<string, string>) {
-    if (!saved) return;
-    setSaved({
-      ...saved,
-      speakerNames: nextNames,
-      markdown: toMarkdown(saved.result, nextNames, saved.participants, saved.expectedCount),
-    });
-    if (saveTimer.current) window.clearTimeout(saveTimer.current);
-    const id = saved.id;
-    const participantsNow = saved.participants;
-    saveTimer.current = window.setTimeout(() => {
-      void fetch("/api/meetings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id,
-          speakerNames: nextNames,
-          participants: participantsNow,
-        }),
-      }).then(() => refreshArchive());
-    }, 500);
-  }
-
   async function processAudio(file: Blob, mimeType: string, durationMs: number, liveCaption?: string) {
     setProcessing(true);
     setProcessStep(0);
@@ -208,7 +157,7 @@ export function MeetingStudio() {
       form.append("audio", file, "meeting.webm");
       form.append("mimeType", mimeType);
       form.append("durationMs", String(durationMs));
-      form.append("participants", JSON.stringify(cleanParticipants));
+      form.append("participants", "[]");
       form.append("expectedCount", String(expectedCount));
       if (liveCaption) form.append("liveCaption", liveCaption);
 
@@ -314,7 +263,6 @@ export function MeetingStudio() {
   }, [status]);
 
   const displayError = error || recorder.error;
-  const speakers = result ? uniqueSpeakersFrom(result) : [];
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:py-10">
@@ -343,11 +291,10 @@ export function MeetingStudio() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Users className="size-4" />
-                Kiek žmonių kambaryje?
+                Dalyvių skaičius
               </CardTitle>
-              <CardDescription>Ne visi turi kalbėti — tylių nepriskirs.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent>
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex items-center gap-1">
                   <Button
@@ -386,35 +333,9 @@ export function MeetingStudio() {
                   </Button>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  {expectedCount} {peopleWord(expectedCount)} kambaryje
+                  {expectedCount} {peopleWord(expectedCount)}
                 </p>
               </div>
-              <p className="text-sm font-medium">Vardai — nebūtina</p>
-              {participants.map((name, index) => (
-                <div key={index} className="flex gap-2">
-                  <Input
-                    value={name}
-                    placeholder={`Dalyvis ${index + 1}`}
-                    onChange={(event) =>
-                      setParticipants((current) => current.map((item, i) => (i === index ? event.target.value : item)))
-                    }
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Pašalinti dalyvį"
-                    onClick={() => setParticipants((current) => current.filter((_, i) => i !== index))}
-                  >
-                    <Trash2 />
-                  </Button>
-                </div>
-              ))}
-              {participants.length < 8 ? (
-                <Button variant="outline" size="sm" onClick={() => setParticipants((current) => [...current, ""])}>
-                  <Plus />
-                  Pridėti dalyvį
-                </Button>
-              ) : null}
             </CardContent>
           </Card>
 
@@ -552,34 +473,6 @@ export function MeetingStudio() {
                     {formatClock(result.durationMs)} · prabilo {result.speakerCount}
                     {saved.expectedCount ? ` iš ${saved.expectedCount}` : ""}
                   </CardDescription>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">Priskirkite balsus vardams</p>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {speakers.map((speaker) => {
-                      const tone = speakerTone(speaker);
-                      return (
-                        <div key={speaker} className="space-y-1.5">
-                          <Label htmlFor={speaker} style={{ color: tone.fg }}>
-                            {defaultSpeakerLabel(speaker)}
-                          </Label>
-                          <Input
-                            id={speaker}
-                            list="participant-names"
-                            placeholder="Pasirinkite arba įrašykite vardą"
-                            value={names[speaker] ?? ""}
-                            onChange={(event) => queueNameSave({ ...names, [speaker]: event.target.value })}
-                          />
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <datalist id="participant-names">
-                    {cleanParticipants.map((name) => (
-                      <option key={name} value={name} />
-                    ))}
-                  </datalist>
                 </div>
 
                 <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
