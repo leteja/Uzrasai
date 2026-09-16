@@ -10,8 +10,8 @@ import {
   Mic,
   Minus,
   Plus,
+  Search,
   Square,
-  Trash2,
   Users,
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -20,11 +20,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Waveform } from "@/components/waveform";
 import { SetupGuide } from "@/components/setup-guide";
 import { ProtocolDocument } from "@/components/protocol-document";
+import {
+  MeetingArchivePanel,
+  MeetingArchiveSidebar,
+  filterMeetings,
+} from "@/components/meeting-archive-sidebar";
 import { useAudioRecorder } from "@/hooks/use-audio-recorder";
 import { useLiveCaptions } from "@/hooks/use-live-captions";
 import {
@@ -92,6 +96,8 @@ export function MeetingStudio() {
   const [emailTo, setEmailTo] = useState("");
   const [emailState, setEmailState] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveQuery, setArchiveQuery] = useState("");
   const autoStopped = useRef(false);
   const saveTimer = useRef<number | null>(null);
   const stopNowRef = useRef<(() => Promise<void>) | null>(null);
@@ -316,231 +322,269 @@ export function MeetingStudio() {
   }, [status]);
 
   const displayError = error || recorder.error;
+  const filteredArchive = useMemo(() => filterMeetings(archive, archiveQuery), [archive, archiveQuery]);
+  const archiveEmptyMessage = archiveQuery.trim()
+    ? "Pagal paiešką nieko nerasta."
+    : "Dar nėra išsaugotų susitikimų.";
+
+  const recordCard = (
+    <Card className="ring-2 ring-primary/20">
+      <CardContent className="space-y-4 pt-5">
+        <div className="rounded-2xl bg-muted/70 px-3 py-3 ring-1 ring-border">
+          <Waveform stream={recorder.stream} active={recorder.isRecording} />
+          <div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">
+            <span className={cn("inline-flex items-center gap-2", recorder.isRecording && "text-red-600")}>
+              <span
+                className={cn(
+                  "size-2 rounded-full bg-muted-foreground/30",
+                  recorder.isRecording && "animate-pulse bg-red-500"
+                )}
+              />
+              {recorder.isRecording ? "Įrašoma" : processing ? "Apdorojama" : "Pasiruošta"}
+            </span>
+            <span className="font-mono tabular-nums text-base text-foreground">{formatClock(recorder.elapsedMs)}</span>
+          </div>
+        </div>
+
+        <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-center sm:gap-6">
+          <button
+            type="button"
+            onClick={() => void onToggleRecord()}
+            disabled={processing || recorder.state === "requesting" || recorder.state === "stopping"}
+            className={cn(
+              "flex size-20 shrink-0 items-center justify-center rounded-full text-white shadow-md transition disabled:opacity-50 sm:size-24",
+              recorder.isRecording ? "bg-red-500 hover:bg-red-400" : "bg-primary hover:bg-primary/90"
+            )}
+            aria-label={recorder.isRecording ? "Stabdyti įrašą" : "Pradėti įrašą"}
+          >
+            {recorder.state === "requesting" || recorder.state === "stopping" || processing ? (
+              <Loader2 className="size-8 animate-spin" />
+            ) : recorder.isRecording ? (
+              <Square className="size-8 fill-current" />
+            ) : (
+              <Mic className="size-9" />
+            )}
+          </button>
+          <div className="text-center sm:text-left">
+            <p className="text-base font-medium">{recorder.isRecording ? "Stop" : "Start"}</p>
+            <p className="text-xs text-muted-foreground">
+              {recorder.isRecording ? "Stabdyti ir gauti užrašus" : "Kalbėkite · iki 70 min."}
+            </p>
+          </div>
+          <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm hover:bg-muted/60 sm:ml-auto">
+            <FileAudio className="size-4" />
+            Įkelti failą
+            <input
+              type="file"
+              accept="audio/*,.webm,.mp3,.wav,.m4a,.ogg"
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void onUpload(file);
+                event.target.value = "";
+              }}
+            />
+          </label>
+        </div>
+
+        {recorder.isRecording && captions.liveText ? (
+          <p className="rounded-xl bg-muted/80 p-3 text-sm leading-6 text-foreground">
+            <span className="mr-2 text-[11px] tracking-wide text-muted-foreground uppercase">Gyvos antraštės</span>
+            {captions.liveText}
+          </p>
+        ) : null}
+
+        {processing ? (
+          <div className="flex items-center gap-2 rounded-xl bg-muted/80 px-3 py-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
+            {PROCESS_STEPS[processStep]}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:py-10">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="max-w-2xl space-y-3">
-          <p className="text-xs font-medium tracking-[0.22em] text-speaker-one uppercase">Užrašai</p>
-          <h1 className="font-heading text-4xl leading-[1.05] text-balance sm:text-5xl">
-            Start. Stop. Gaukite užrašus.
-          </h1>
-          <p className="max-w-xl text-base text-muted-foreground">
-            Spauskite Start, kalbėkite, tada Stop.
-          </p>
+    <div className="flex min-h-screen flex-col">
+      <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-2 px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="font-heading text-lg leading-none tracking-tight">Užrašai</p>
+              <p className="text-[11px] text-muted-foreground">Start · Stop · Užrašai</p>
+            </div>
+            {!status?.ready ? (
+              <Badge variant="outline" className="max-w-[12rem] text-left text-[11px] leading-4 font-normal whitespace-normal">
+                {readyLabel}
+              </Badge>
+            ) : null}
+          </div>
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={archiveQuery}
+              onChange={(event) => setArchiveQuery(event.target.value)}
+              placeholder="Ieškoti pagal datą ar raktinius žodžius iš pavadinimo…"
+              className="pl-9"
+              aria-label="Ieškoti susitikimų"
+            />
+          </div>
+          {archive.length > 0 ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-fit lg:hidden"
+              onClick={() => setArchiveOpen((open) => !open)}
+            >
+              {archiveOpen ? "Slėpti susitikimus" : "Praeiti susitikimai"} ({filteredArchive.length})
+            </Button>
+          ) : null}
         </div>
-        {status?.ready ? null : (
-          <Badge variant="outline" className="h-auto max-w-xs px-3 py-2 text-left text-xs leading-5 font-normal whitespace-normal">
-            {readyLabel}
-          </Badge>
-        )}
       </header>
 
-      <SetupGuide status={status} />
+      <div className="mx-auto flex w-full max-w-7xl flex-1 gap-0 px-4 py-4">
+        {archive.length > 0 ? (
+          <MeetingArchiveSidebar
+            className="hidden lg:flex"
+            items={filteredArchive}
+            totalCount={archive.length}
+            open={archiveOpen}
+            onOpenChange={setArchiveOpen}
+            activeId={saved?.id}
+            onSelect={(id) => void openArchive(id)}
+            onRemove={(id) => void removeArchive(id)}
+            emptyMessage={archiveEmptyMessage}
+          />
+        ) : null}
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="size-4" />
-                Dalyvių skaičius
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    aria-label="Mažiau žmonių"
-                    disabled={expectedCount === null}
-                    onClick={() =>
-                      setExpectedCount((count) => (count === null || count <= 1 ? null : count - 1))
-                    }
-                  >
-                    <Minus />
-                  </Button>
-                  <Input
-                    id="expected-count"
-                    type="number"
-                    min={1}
-                    max={20}
-                    inputMode="numeric"
-                    className="w-20 text-center"
-                    placeholder="—"
-                    value={expectedCount ?? ""}
-                    onChange={(event) => {
-                      const raw = event.target.value.trim();
-                      if (!raw) {
-                        setExpectedCount(null);
-                        return;
-                      }
-                      const value = Number(raw);
-                      if (!Number.isFinite(value)) return;
-                      setExpectedCount(Math.min(20, Math.max(1, Math.round(value))));
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    aria-label="Daugiau žmonių"
-                    disabled={expectedCount !== null && expectedCount >= 20}
-                    onClick={() => setExpectedCount((count) => Math.min(20, (count ?? 0) + 1))}
-                  >
-                    <Plus />
-                  </Button>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {expectedCount === null ? "Nepateikta" : `${expectedCount} ${peopleWord(expectedCount)}`}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+        <div className="min-w-0 flex-1 space-y-4">
+          {archiveOpen && archive.length > 0 ? (
+            <MeetingArchivePanel
+              className="lg:hidden"
+              items={filteredArchive}
+              totalCount={archive.length}
+              activeId={saved?.id}
+              onSelect={(id) => void openArchive(id)}
+              onRemove={(id) => void removeArchive(id)}
+              emptyMessage={archiveEmptyMessage}
+            />
+          ) : null}
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="size-4" />
-                Aprašymo instrukcijos
-              </CardTitle>
-              <CardDescription>
-                Parašykite, kokio aprašymo norite: trumpo ar detalaus, punktais ar pastraipomis, ką pridėti ar
-                praleisti.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex flex-wrap gap-2">
-                {SUMMARY_PRESETS.map((preset) => (
-                  <Button
-                    key={preset.label}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={processing || recorder.isRecording}
-                    onClick={() => setSummaryInstructions(preset.text)}
-                  >
-                    {preset.label}
-                  </Button>
-                ))}
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="summary-instructions">Jūsų nurodymai</Label>
-                <Textarea
-                  id="summary-instructions"
-                  value={summaryInstructions}
-                  disabled={processing || recorder.isRecording}
-                  onChange={(event) => setSummaryInstructions(event.target.value)}
-                  placeholder="Pvz.: Trumpas aprašymas. Pridėkite biudžeto skaičius. Nepaminėkite asmeninių pokalbių. Rašyk punktais."
-                  className="min-h-28 leading-6"
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {summaryInstructions.trim()
-                  ? "Instrukcijos bus pritaikytos generuojant aprašymą."
-                  : "Palikite tuščią — bus naudojamas numatytasis aprašymas."}
-              </p>
-            </CardContent>
-          </Card>
+          {recordCard}
 
-          <Card className="ring-2 ring-primary/20">
-            <CardHeader>
-              <CardTitle>Įrašas kambaryje</CardTitle>
-              <CardDescription>Start → kalbėkite → Stop.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <div className="rounded-2xl bg-muted/70 px-3 py-4 ring-1 ring-border">
-                <Waveform stream={recorder.stream} active={recorder.isRecording} />
-                <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
-                  <span className={cn("inline-flex items-center gap-2", recorder.isRecording && "text-red-600")}>
-                    <span className={cn("size-2 rounded-full bg-muted-foreground/30", recorder.isRecording && "animate-pulse bg-red-500")} />
-                    {recorder.isRecording ? "Įrašoma" : processing ? "Apdorojama kelias minutes" : "Laukiama"}
-                  </span>
-                  <span className="font-mono tabular-nums text-lg text-foreground">{formatClock(recorder.elapsedMs)}</span>
-                </div>
-              </div>
+          <details className="group rounded-xl border bg-card open:shadow-sm">
+            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium marker:content-none [&::-webkit-details-marker]:hidden">
+              Dalyviai ir aprašymo nustatymai
+            </summary>
+            <div className="space-y-4 border-t px-4 py-4">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Users className="size-4" />
+                    Dalyvių skaičius
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        aria-label="Mažiau žmonių"
+                        disabled={expectedCount === null}
+                        onClick={() =>
+                          setExpectedCount((count) => (count === null || count <= 1 ? null : count - 1))
+                        }
+                      >
+                        <Minus />
+                      </Button>
+                      <Input
+                        id="expected-count"
+                        type="number"
+                        min={1}
+                        max={20}
+                        inputMode="numeric"
+                        className="w-20 text-center"
+                        placeholder="—"
+                        value={expectedCount ?? ""}
+                        onChange={(event) => {
+                          const raw = event.target.value.trim();
+                          if (!raw) {
+                            setExpectedCount(null);
+                            return;
+                          }
+                          const value = Number(raw);
+                          if (!Number.isFinite(value)) return;
+                          setExpectedCount(Math.min(20, Math.max(1, Math.round(value))));
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        aria-label="Daugiau žmonių"
+                        disabled={expectedCount !== null && expectedCount >= 20}
+                        onClick={() => setExpectedCount((count) => Math.min(20, (count ?? 0) + 1))}
+                      >
+                        <Plus />
+                      </Button>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {expectedCount === null ? "Nepateikta" : `${expectedCount} ${peopleWord(expectedCount)}`}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
 
-              <div className="flex flex-col items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => void onToggleRecord()}
-                  disabled={processing || recorder.state === "requesting" || recorder.state === "stopping"}
-                  className={cn(
-                    "flex size-24 items-center justify-center rounded-full text-white shadow-md transition disabled:opacity-50",
-                    recorder.isRecording ? "bg-red-500 hover:bg-red-400" : "bg-primary hover:bg-primary/90"
-                  )}
-                  aria-label={recorder.isRecording ? "Stabdyti įrašą" : "Pradėti įrašą"}
-                >
-                  {recorder.state === "requesting" || recorder.state === "stopping" || processing ? (
-                    <Loader2 className="size-8 animate-spin" />
-                  ) : recorder.isRecording ? (
-                    <Square className="size-8 fill-current" />
-                  ) : (
-                    <Mic className="size-9" />
-                  )}
-                </button>
-                <div className="text-center">
-                  <p className="text-sm font-medium">{recorder.isRecording ? "Stop" : "Start"}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {recorder.isRecording ? "Stabdyti ir apdoroti" : "Iki 70 min."}
-                  </p>
-                </div>
-              </div>
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <FileText className="size-4" />
+                    Aprašymo instrukcijos
+                  </CardTitle>
+                  <CardDescription>
+                    Trumpas ar detalus aprašymas, punktais ar pastraipomis.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    {SUMMARY_PRESETS.map((preset) => (
+                      <Button
+                        key={preset.label}
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={processing || recorder.isRecording}
+                        onClick={() => setSummaryInstructions(preset.text)}
+                      >
+                        {preset.label}
+                      </Button>
+                    ))}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="summary-instructions">Jūsų nurodymai</Label>
+                    <Textarea
+                      id="summary-instructions"
+                      value={summaryInstructions}
+                      disabled={processing || recorder.isRecording}
+                      onChange={(event) => setSummaryInstructions(event.target.value)}
+                      placeholder="Pvz.: Trumpas aprašymas. Pridėkite biudžeto skaičius."
+                      className="min-h-24 leading-6"
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </details>
 
-              {recorder.isRecording && captions.liveText ? (
-                <p className="rounded-xl bg-muted/80 p-3 text-sm leading-6 text-foreground">
-                  <span className="mr-2 text-[11px] tracking-wide text-muted-foreground uppercase">Gyvos antraštės</span>
-                  {captions.liveText}
-                </p>
-              ) : null}
-
-              {processing ? (
-                <div className="flex items-center gap-2 rounded-xl bg-muted/80 px-3 py-2 text-sm text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" />
-                  {PROCESS_STEPS[processStep]}
-                </div>
-              ) : null}
-
-              <Separator />
-
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm hover:bg-muted/60">
-                  <FileAudio className="size-4" />
-                  Įkelti garso failą
-                  <input
-                    type="file"
-                    accept="audio/*,.webm,.mp3,.wav,.m4a,.ogg"
-                    className="sr-only"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (file) void onUpload(file);
-                      event.target.value = "";
-                    }}
-                  />
-                </label>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="space-y-4">
           {displayError ? (
             <Alert variant="destructive">
               <AlertCircle />
               <AlertTitle>Nepavyko</AlertTitle>
               <AlertDescription>{displayError}</AlertDescription>
             </Alert>
-          ) : null}
-
-          {!result && !processing ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Dar nėra užrašų</CardTitle>
-                <CardDescription>Spauskite Start ir pradėkite kalbėti.</CardDescription>
-              </CardHeader>
-            </Card>
           ) : null}
 
           {result && saved ? (
@@ -587,31 +631,15 @@ export function MeetingStudio() {
             </Card>
           ) : null}
 
-          {archive.length > 0 ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Išsaugoti susitikimai</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {archive.map((item) => (
-                  <div key={item.id} className="flex items-center gap-2 rounded-lg bg-muted/70 px-2 py-1.5">
-                    <button
-                      type="button"
-                      className="min-w-0 flex-1 text-left text-sm hover:underline"
-                      onClick={() => void openArchive(item.id)}
-                    >
-                      <span className="block truncate font-medium">{normalizeMeetingTitle(item.title)}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(item.createdAt).toLocaleString("lt-LT")} · {formatClock(item.durationMs)} · {item.speakerCount} bals.
-                      </span>
-                    </button>
-                    <Button variant="ghost" size="icon-xs" onClick={() => void removeArchive(item.id)} aria-label="Ištrinti">
-                      <Trash2 />
-                    </Button>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
+          {!status?.ready ? (
+            <details className="rounded-xl border bg-card">
+              <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium marker:content-none [&::-webkit-details-marker]:hidden">
+                Savininko nustatymas (vieną kartą)
+              </summary>
+              <div className="border-t px-1 pb-1">
+                <SetupGuide status={status} />
+              </div>
+            </details>
           ) : null}
         </div>
       </div>
