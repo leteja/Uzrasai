@@ -14,12 +14,16 @@ import {
   type MeetingSegment,
   type MeetingSummary,
   type SpeakerId,
+  defaultSpeakerLabel,
   normalizeSpeaker,
   parseOffsetMs,
   speakerId,
   speakerName,
   formatSpeakerLine,
   normalizeMeetingTitle,
+  finalizeSummary,
+  looksLikeTranscriptTitle,
+  deriveFallbackTitle,
   uniqueSpeakerIds,
 } from "@/lib/meeting";
 
@@ -72,11 +76,13 @@ SVARBU — tai SUTRUMPINTAS aprašymas, ne antras transkriptas:
 - Nerašyk, ko pokalbyje nebuvo. Nenaudok „pasakė“, „kalbėjo“ kiekvienam sakiniui — rašyk bendrą susitikimo eigą.
 - Jei žinai kalbėtojo vardą — naudok jį aprašyme vietoje „Kalbėtojas N“.
 - Vardus naudok tik jei jie aiškiai nurodyti (prisistatymas transkripte arba žinomi vardų sąraše). Negalvok vardų.
-- title laukas: tik 2–6 žodžiai, tema arba darbotvarkės punktas — ne sakinys, ne citata iš transkripto.
+- title laukas: 2–6 žodžių — VISOS pokalbio TEMA (trumpa, aiški). Pradeda DIDŽIĄJA raide.
+- title NEGALI būti transkripto pradžia, citata, pirmi pasakyti žodžiai, sakinys ar dialogo fragmentas (be „-“).
+- narrative: bendras aprašymas trečiuoju asmeniu. DRAUDŽIAMAS formatas „vardas - tekstas“ ar „Kalbėtojas N:“ — tai transkripto forma, ne aprašymas.
 
 Grąžink tik JSON:
 {
-  "title": "2–6 žodžių tema (ne sakinys, ne transkripto fragmentas)",
+  "title": "Tema didžiąja raide (pvz. Planuojamas vizitas ir maisto gaminimas)",
   "narrative": "3–8 pastraipos. Sutrumpintas, perfrazuotas viso pokalbio aprašymas — ne transkripto kopija."
 }`;
 
@@ -111,38 +117,81 @@ function fallbackSummary(segments: MeetingSegment[], names: Record<string, strin
       .join(" ");
     if (!text) continue;
     const sentence = text.split(/(?<=[.!?…])\s+/).slice(0, 2).join(" ").trim();
-    snippets.push(formatSpeakerLine(speaker, sentence, names));
+    const label = names[speaker]?.trim() || defaultSpeakerLabel(speaker);
+    snippets.push(`${label} kalbėjo apie: ${sentence}`);
   }
 
   const narrative = snippets.join("\n\n").trim() || "Nepavyko parengti aprašymo.";
-  const titleSource = snippets[0]?.split(/\s+/).slice(0, 5).join(" ") || "Susitikimo užrašai";
 
-  return {
-    title: normalizeMeetingTitle(titleSource),
-    narrative,
-    decisions: [],
-    nextSteps: [],
-  };
+  return finalizeSummary(
+    {
+      title: deriveFallbackTitle(segments, narrative),
+      narrative,
+      decisions: [],
+      nextSteps: [],
+    },
+    segments,
+    names
+  );
 }
 
-function parseSummary(raw: string): MeetingSummary {
+function parseSummary(raw: string, segments: MeetingSegment[] = []): MeetingSummary {
   try {
     const jsonStart = raw.indexOf("{");
     const jsonEnd = raw.lastIndexOf("}");
     const parsed = JSON.parse(jsonStart >= 0 ? raw.slice(jsonStart, jsonEnd + 1) : raw) as Partial<MeetingSummary>;
-    return {
-      title: normalizeMeetingTitle(parsed.title?.trim() || "Susitikimo užrašai"),
-      narrative: parsed.narrative?.trim() || "",
-      decisions: Array.isArray(parsed.decisions) ? parsed.decisions.map(String).filter(Boolean) : [],
-      nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps.map(String).filter(Boolean) : [],
-    };
+    return finalizeSummary(
+      {
+        title: parsed.title?.trim() || "Susitikimo užrašai",
+        narrative: parsed.narrative?.trim() || "",
+        decisions: Array.isArray(parsed.decisions) ? parsed.decisions.map(String).filter(Boolean) : [],
+        nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps.map(String).filter(Boolean) : [],
+      },
+      segments
+    );
   } catch {
-    return {
-      title: normalizeMeetingTitle(raw.trim().split(/\s+/).slice(0, 6).join(" ") || "Susitikimo užrašai"),
-      narrative: raw.trim(),
-      decisions: [],
-      nextSteps: [],
-    };
+    return finalizeSummary(
+      {
+        title: raw.trim().split(/\s+/).slice(0, 6).join(" ") || "Susitikimo užrašai",
+        narrative: raw.trim(),
+        decisions: [],
+        nextSteps: [],
+      },
+      segments
+    );
+  }
+}
+
+async function regenerateTitleWithGemini(
+  ai: GoogleGenAI,
+  segments: MeetingSegment[],
+  summary: MeetingSummary,
+  names: Record<string, string> = {},
+  summaryInstructions?: string
+): Promise<MeetingSummary> {
+  if (!looksLikeTranscriptTitle(summary.title, summary.narrative, segments)) {
+    return summary;
+  }
+
+  try {
+    const text = await geminiJsonText(
+      ai,
+      `Sugeneruok TRUMPĄ susitikimo pavadinimą — 2–6 žodžių tema lietuviškai.
+Pradeda DIDŽIĄJA raide. Ne citata, ne transkripto pradžia, ne sakinys, be brūkšnelio „-“.
+Aprašo VISĄ pokalbio temą, ne pirmus pasakytus žodžius.
+${summaryInstructionsHint(summaryInstructions)}${namesHint(names)}
+
+APRAŠYMAS:
+${summary.narrative.slice(0, 1800)}
+
+Grąžink JSON {"title":"..."}`
+    );
+    const parsed = JSON.parse(text) as { title?: string };
+    const title = parsed.title?.trim();
+    if (!title) return summary;
+    return finalizeSummary({ ...summary, title }, segments, names);
+  } catch {
+    return finalizeSummary(summary, segments, names);
   }
 }
 
@@ -630,7 +679,9 @@ async function summarizeWithGemini(
     ai,
     `${SUMMARY_PROMPT}${summaryInstructionsHint(summaryInstructions)}${namesHint(speakerNames)}${attendeesHint(expectedCount)}\n\nPOKALBIS:\n${transcriptFromSegments(segments, speakerNames)}`
   );
-  return parseSummary(text);
+  let summary = parseSummary(text, segments);
+  summary = await regenerateTitleWithGemini(ai, segments, summary, speakerNames, summaryInstructions);
+  return summary;
 }
 
 async function processWithGeminiFlash(
@@ -688,12 +739,21 @@ Grąžink tik JSON:
 
   return {
     segments: finalSegments,
-    summary: {
-      title: normalizeMeetingTitle(parsed.summary?.title?.trim() || "Susitikimo užrašai"),
-      narrative: parsed.summary?.narrative?.trim() || "",
-      decisions: [],
-      nextSteps: [],
-    },
+    summary: await regenerateTitleWithGemini(
+      ai,
+      finalSegments,
+      finalizeSummary(
+        {
+          title: parsed.summary?.title?.trim() || "Susitikimo užrašai",
+          narrative: parsed.summary?.narrative?.trim() || "",
+          decisions: [],
+          nextSteps: [],
+        },
+        finalSegments
+      ),
+      {},
+      input.summaryInstructions
+    ),
     provider: "gemini",
     language: "lt",
     durationMs: input.durationMs,
@@ -837,7 +897,6 @@ Papildomai JSON turi turėti segments masyvą su visomis Whisper atkarpomis:
     ],
   });
 
-  const parsed = parseSummary(completion.choices[0]?.message?.content ?? "");
   let speakerMap: Record<number, SpeakerId> = {};
   try {
     const jsonStart = (completion.choices[0]?.message?.content ?? "").indexOf("{");
@@ -880,9 +939,18 @@ Papildomai JSON turi turėti segments masyvą su visomis Whisper atkarpomis:
     segments = await rebalanceSpeakers(ai, segments, input.expectedCount);
   }
 
+  let summary = parseSummary(completion.choices[0]?.message?.content ?? "", segments);
+  if (!summary.narrative) {
+    summary = { ...emptySummary(), narrative: fullText };
+  }
+  if (geminiKey) {
+    const ai = new GoogleGenAI({ apiKey: geminiKey });
+    summary = await regenerateTitleWithGemini(ai, segments, summary, {}, input.summaryInstructions);
+  }
+
   return {
     segments,
-    summary: parsed.narrative ? parsed : { ...emptySummary(), narrative: fullText },
+    summary,
     provider: "groq",
     language: "lt",
     durationMs: input.durationMs,

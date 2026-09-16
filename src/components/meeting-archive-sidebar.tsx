@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, Search, Trash2 } from "lucide-react";
+import { Archive, ChevronRight, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { type MeetingListItem, formatClock, normalizeMeetingTitle } from "@/lib/meeting";
@@ -100,10 +100,12 @@ export function MeetingArchiveSidebar({
         aria-label="Rodyti praeitus susitikimus"
         title="Praeiti susitikimai"
         className={cn(
-          "sticky top-0 flex h-dvh w-12 shrink-0 cursor-pointer border-l border-border bg-muted/50 transition hover:bg-muted",
+          "sticky top-0 flex h-dvh w-12 shrink-0 cursor-pointer items-center justify-center border-l border-border bg-muted/50 text-muted-foreground transition hover:bg-muted hover:text-foreground",
           className
         )}
-      />
+      >
+        <Archive className="size-5" />
+      </button>
     );
   }
 

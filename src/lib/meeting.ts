@@ -105,7 +105,104 @@ export function normalizeMeetingTitle(title: string, maxWords = 6, maxChars = 48
     short = short.slice(0, maxChars).trim();
   }
   short = short.replace(/[,;:–—-]+$/, "").trim();
-  return short || "Susitikimo užrašai";
+  if (!short) return "Susitikimo užrašai";
+  return short.charAt(0).toLocaleUpperCase("lt-LT") + short.slice(1);
+}
+
+export function stripSummaryDialoguePrefix(text: string): string {
+  let result = text.trim();
+  if (!result) return result;
+
+  const dashMatch = result.match(/^(.{1,40}?)\s[-–—]\s+/);
+  if (dashMatch) {
+    const prefix = dashMatch[1].trim();
+    const looksLikeName = /^[A-ZĄČĘĖĮŠŲŪŽ][a-ząčęėįšųūž]*(?:\s+[A-ZĄČĘĖĮŠŲŪŽ][a-ząčęėįšųūž]*)?$/.test(prefix);
+    if (!looksLikeName) {
+      result = result.slice(dashMatch[0].length).trim();
+    }
+  }
+
+  result = result.replace(/^Kalbėtojas\s+\d+\s*:\s*/i, "").trim();
+  result = result.replace(/^Kalbėtojas\s+\d+\s*[-–—]\s*/i, "").trim();
+  result = result.replace(/^[a-ząčęėįšųūž]{2,20}\s[-–—]\s*/u, "").trim();
+  return result;
+}
+
+export function looksLikeTranscriptTitle(
+  title: string,
+  narrative = "",
+  segments: MeetingSegment[] = []
+): boolean {
+  const normalized = title.trim();
+  if (!normalized || normalized === "Susitikimo užrašai") return false;
+  if (/^[a-ząčęėįšųūž]/.test(normalized)) return true;
+  if (/^\S+\s[-–—]\s/.test(normalized)) return true;
+  if (/^(labas|aš|as| tai| nu| ok| okay)\b/i.test(normalized)) return true;
+
+  const narrativeStart = stripSummaryDialoguePrefix(narrative).slice(0, 40).toLowerCase();
+  if (narrativeStart && normalized.toLowerCase().startsWith(narrativeStart.slice(0, Math.min(20, narrativeStart.length)))) {
+    return true;
+  }
+
+  const firstSegment = segments[0]?.text.trim().toLowerCase() ?? "";
+  if (firstSegment && normalized.toLowerCase().startsWith(firstSegment.split(/\s+/).slice(0, 3).join(" "))) {
+    return true;
+  }
+
+  return false;
+}
+
+export function deriveFallbackTitle(segments: MeetingSegment[], narrative: string): string {
+  const cleaned = stripSummaryDialoguePrefix(narrative);
+  const sentences = cleaned.split(/(?<=[.!?…])\s+/).filter((sentence) => sentence.trim().length > 12);
+  for (const sentence of sentences) {
+    const words = sentence
+      .replace(/^[^A-Za-zĄČĘĖĮŠŲŪŽ]+/u, "")
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 5);
+    if (words.length >= 2 && !/^(labas|aš|as|tai|nu)$/i.test(words[0])) {
+      return normalizeMeetingTitle(words.join(" "));
+    }
+  }
+
+  const topics = cleaned.match(/\b(?:apie|dėl|dėlto|kalbėta|aptarta|sprend|plan|biudžet|projekt\w*)\s+([^.!?]{8,40})/i);
+  if (topics?.[1]) {
+    return normalizeMeetingTitle(topics[1].trim().split(/\s+/).slice(0, 5).join(" "));
+  }
+
+  if (segments.length > 0) {
+    return "Pokalbio aprašymas";
+  }
+
+  return "Susitikimo tema";
+}
+
+export function finalizeSummary(
+  summary: MeetingSummary,
+  segments: MeetingSegment[] = [],
+  names: Record<string, string> = {}
+): MeetingSummary {
+  let narrative = stripSummaryDialoguePrefix(summary.narrative.trim());
+  let title = normalizeMeetingTitle(summary.title);
+
+  const withNames = applySpeakerNamesToSummary({ ...summary, title, narrative }, names, {});
+  narrative = withNames.narrative;
+  title = withNames.title;
+
+  if (looksLikeTranscriptTitle(title, narrative, segments)) {
+    title = deriveFallbackTitle(segments, narrative);
+  }
+
+  if (narrative.length > 0) {
+    narrative = narrative.charAt(0).toLocaleUpperCase("lt-LT") + narrative.slice(1);
+  }
+
+  return {
+    ...summary,
+    title: normalizeMeetingTitle(title),
+    narrative,
+  };
 }
 
 export function listSpeakers(count: number): SpeakerId[] {
@@ -203,6 +300,7 @@ export function applySpeakerNamesToSummary(
   previousNames: Record<string, string> = {}
 ): MeetingSummary {
   let { title, narrative } = summary;
+  narrative = stripSummaryDialoguePrefix(narrative);
   const speakers = Object.keys(names)
     .filter((key) => names[key]?.trim())
     .sort((a, b) => speakerNumber(b) - speakerNumber(a)) as SpeakerId[];
@@ -212,6 +310,14 @@ export function applySpeakerNamesToSummary(
     title = applySpeakerNameToText(title, speaker, name, previousNames[speaker]);
     narrative = applySpeakerNameToText(narrative, speaker, name, previousNames[speaker]);
   }
+
+  for (const name of Object.values(names)) {
+    const trimmed = name.trim();
+    if (!trimmed) continue;
+    narrative = narrative.replace(new RegExp(`^${escapeRegExp(trimmed)}\\s[-–—]\\s`, "i"), "");
+  }
+
+  narrative = stripSummaryDialoguePrefix(narrative);
 
   return { ...summary, title, narrative };
 }

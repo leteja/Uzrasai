@@ -17,6 +17,7 @@ import {
   formatTimestamp,
   hasCustomSpeakerName,
   expectedSpeakerIds,
+  finalizeSummary,
   manualEditNotice,
   normalizeMeetingTitle,
   speakerName,
@@ -109,7 +110,11 @@ export function ProtocolDocument({
         speakerNames: nextNames,
         result: {
           ...result,
-          summary: applySpeakerNamesToSummary(result.summary, nextNames, names),
+          summary: finalizeSummary(
+            applySpeakerNamesToSummary(result.summary, nextNames, names),
+            result.segments,
+            nextNames
+          ),
         },
       },
       { nameSync: true }
