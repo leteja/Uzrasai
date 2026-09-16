@@ -72,9 +72,9 @@ SVARBU — tai SUTRUMPINTAS aprašymas, ne antras transkriptas:
 - Tikslas: aprašymas turi būti ~15–30% transkripto žodžių kiekio. Jei per ilgas — per daug kartoji.
 - Draudžiama cituoti ar kartoti tas pačias frazes, sakinius ar jų eilę kaip transkripte. Viską perfrazuok savo žodžiais.
 - Rašyk 3–6 pastraipomis su teisinga lietuviška skyryba, nebent naudotojo instrukcijos reikalauja punktų.
-- Sujunk pasikartojimus, sugrupuok temas, išskirk esmę — bet nepraleisk svarbių faktų, skaičių, datų ir sprendimų.
+- Sujunk pasikartojimus, sugrupuok temas — bet BŪTINA paminėti VISUS svarbius faktus: vardus (jei pasakyta), vietas, datas, laikus, susitikimus, sprendimus, temas.
 - Nerašyk, ko pokalbyje nebuvo. Venk dialogo formos ir eilės citavimo.
-- Kalbėtojus vadink „Kalbėtojas 1“, „Kalbėtojas 2“ — negalvok vardų, nebent aiškiai prisistatė ar nurodyta instrukcijose.
+- Jei kalbėtojas prisistatė vardu — naudok tą vardą. Kitu atveju „Kalbėtojas 1“, „Kalbėtojas 2“.
 - title laukas: 2–6 žodžių — VISOS pokalbio TEMA (trumpa, aiški). Pradeda DIDŽIĄJA raide.
 - title NEGALI būti transkripto pradžia, citata, pirmi pasakyti žodžiai, sakinys ar dialogo fragmentas (be „-“).
 - narrative: bendras aprašymas trečiuoju asmeniu. DRAUDŽIAMAS formatas „vardas - tekstas“ ar „Kalbėtojas N:“ — tai transkripto forma, ne aprašymas.
@@ -99,39 +99,74 @@ type AudioInput = {
 function emptySummary(): MeetingSummary {
   return {
     title: "Susitikimo užrašai",
-    narrative: "Nepavyko parengti aprašymo.",
+    narrative: "",
     decisions: [],
     nextSteps: [],
   };
 }
 
-function fallbackSummary(segments: MeetingSegment[], names: Record<string, string> = {}): MeetingSummary {
-  const speakers = uniqueSpeakerIds(segments);
-  const snippets: string[] = [];
+function isWeakSummary(narrative: string, segments: MeetingSegment[]): boolean {
+  const text = narrative.trim();
+  if (!text) return true;
+  if (/kalbėjo apie:/i.test(text)) return true;
+  const transcriptLen = segments.map((segment) => segment.text).join(" ").length;
+  return transcriptLen > 120 && text.length < transcriptLen * 0.15;
+}
 
-  for (const speaker of speakers) {
-    const text = segments
-      .filter((segment) => segment.speaker === speaker)
-      .map((segment) => segment.text.trim())
-      .join(" ");
-    if (!text) continue;
-    const sentence = text.split(/(?<=[.!?…])\s+/).slice(0, 2).join(" ").trim();
-    const label = names[speaker]?.trim() || defaultSpeakerLabel(speaker);
-    snippets.push(`${label} kalbėjo apie: ${sentence}`);
+function localBulletFallback(
+  segments: MeetingSegment[],
+  names: Record<string, string> = {},
+  summaryInstructions?: string
+): MeetingSummary {
+  const bullets: string[] = [];
+
+  for (const segment of segments) {
+    const label = names[segment.speaker]?.trim() || defaultSpeakerLabel(segment.speaker);
+    const sentences = segment.text
+      .split(/(?<=[.!?…])\s+/)
+      .map((sentence) => sentence.trim())
+      .filter(Boolean);
+
+    for (const sentence of sentences) {
+      const line = wantsBulletFormat(summaryInstructions)
+        ? `- ${label}: ${sentence}`
+        : `${label}: ${sentence}`;
+      bullets.push(line);
+    }
   }
 
-  const narrative = snippets.join("\n\n").trim() || "Nepavyko parengti aprašymo.";
+  const narrative = wantsBulletFormat(summaryInstructions)
+    ? bullets.join("\n")
+    : bullets.join("\n\n");
 
   return finalizeSummary(
     {
       title: deriveFallbackTitle(segments, narrative),
-      narrative,
+      narrative: narrative || "Nepavyko parengti aprašymo.",
       decisions: [],
       nextSteps: [],
     },
     segments,
     names
   );
+}
+
+async function fallbackSummary(
+  ai: GoogleGenAI,
+  segments: MeetingSegment[],
+  names: Record<string, string> = {},
+  summaryInstructions?: string
+): Promise<MeetingSummary> {
+  try {
+    const summary = await rewriteSummaryCompressed(ai, segments, emptySummary(), summaryInstructions, names);
+    if (!isWeakSummary(summary.narrative, segments)) {
+      return summary;
+    }
+  } catch (error) {
+    console.warn("Atsarginis Gemini aprašymas nepavyko:", error);
+  }
+
+  return localBulletFallback(segments, names, summaryInstructions);
 }
 
 function parseSummary(raw: string, segments: MeetingSegment[] = []): MeetingSummary {
@@ -218,7 +253,7 @@ function normalizeName(value: string): string {
 const REJECTED_NAME_WORDS = new Set(
   [
     "aš", "as", "einu", "eiti", "labas", "sveiki", "tai", "nu", "ok", "okay", "taip", "ne", "kas", "kaip", "ką",
-    "man", "mane", "čia", "cia", "ten", "bet", "ir", "ar", "jo", "ji", "mes", "jūs", "jus", "tu", "tėja", "teja",
+    "man", "mane", "čia", "cia", "ten", "bet", "ir", "ar", "jo", "ji", "mes", "jūs", "jus", "tu",
     "mama", "tėtis", "tetis", "brolis", "sestra", "sesuo", "direktorius", "bosas", "vadovas", "kalbu", "kalbėjau",
     "galvoju", "manau", "reikia", "galiu", "negaliu", "today", "tomorrow", "meeting", "email",
   ].map((word) => word.toLowerCase())
@@ -248,8 +283,11 @@ function strictInferSpeakerNamesFromText(segments: MeetingSegment[]): Record<str
 
     for (const pattern of NAME_PATTERNS) {
       const match = pattern.exec(text);
-      if (match?.[1] && isPlausiblePersonName(match[1])) {
-        names[speaker] = normalizeName(match[1]);
+      if (!match?.[1]) continue;
+      const name = normalizeName(match[1]);
+      const explicitIntro = /mano\s+vardas/i.test(pattern.source);
+      if (explicitIntro || isPlausiblePersonName(name)) {
+        names[speaker] = name;
         break;
       }
     }
@@ -323,28 +361,31 @@ async function rewriteSummaryCompressed(
   ai: GoogleGenAI,
   segments: MeetingSegment[],
   summary: MeetingSummary,
-  summaryInstructions?: string
+  summaryInstructions?: string,
+  speakerNames: Record<string, string> = {}
 ): Promise<MeetingSummary> {
   const bulletRule = wantsBulletFormat(summaryInstructions)
-    ? "narrative rašyk PUNKTUOTU SĄRAŠU — kiekviena eilutė prasideda „- „. NE vientisa pastraipa."
-    : "narrative rašyk 3–5 trumpomis pastraipomis su teisinga skyryba.";
+    ? `narrative BŪTINA punktuotu sąrašu — kiekviena eilutė prasideda „- „. Kiekvienas svarbus faktas atskirame punkte (vardas, vieta, veikla, data, laikas, susitikimas, tikslas). NE viena pastraipa.`
+    : "narrative rašyk 3–6 pastraipomis su teisinga skyryba.";
 
   try {
     const text = await geminiJsonText(
       ai,
-      `Perrašyk susitikimo aprašymą — tai TURI būti SUTRUMPINIMAS, ne transkripto kopija.
-- Maksimaliai ~25% transkripto ilgio. Trumpiau = geriau.
-- Perfrazuok visiškai kitais žodžiais. Draudžiama kopijuoti sakinius ar frazes iš transkripto.
+      `Parašyk susitikimo aprašymą lietuviškai pagal transkriptą.
+- Perfrazuok savo žodžiais, bet NEPRALEISK jokio svarbaus fakto iš transkripto.
+- BŪTINA paminėti: vardus (jei pasakyta), gyvenamąją vietą, profesiją/veiklą, datas, laikus, susitikimus, sprendimus, temas.
 - ${bulletRule}
-- Kalbėtojus vadink „Kalbėtojas 1“, „Kalbėtojas 2“ — negalvok vardų.
-${summaryInstructionsHint(summaryInstructions)}
+${namesHint(speakerNames)}${summaryInstructionsHint(summaryInstructions)}
 
-TRANSKRIPTAS (tik faktams, nekopijuok):
-${transcriptFromSegments(segments, {})}
+TRANSKRIPTAS:
+${transcriptFromSegments(segments, speakerNames)}
 
 Grąžink JSON {"title":"2–6 žodžių tema didžiąja raide","narrative":"..."}`
     );
     let next = parseSummary(text, segments);
+    if (isWeakSummary(next.narrative, segments)) {
+      throw new Error("Gemini grąžino per trumpą aprašymą.");
+    }
     if (wantsBulletFormat(summaryInstructions) && !/^\s*-\s/m.test(next.narrative)) {
       next = {
         ...next,
@@ -356,9 +397,12 @@ Grąžink JSON {"title":"2–6 žodžių tema didžiąja raide","narrative":"...
           .join("\n"),
       };
     }
-    return next;
+    return finalizeSummary(next, segments, speakerNames);
   } catch {
-    return summary;
+    if (summary.narrative.trim() && !isWeakSummary(summary.narrative, segments)) {
+      return finalizeSummary(summary, segments, speakerNames);
+    }
+    throw new Error("Nepavyko sugeneruoti aprašymo.");
   }
 }
 
@@ -778,13 +822,14 @@ async function summarizeWithGemini(
   speakerNames: Record<string, string> = {},
   summaryInstructions?: string
 ): Promise<MeetingSummary> {
-  const text = await geminiJsonText(
+  let summary = await rewriteSummaryCompressed(
     ai,
-    `${SUMMARY_PROMPT}${summaryInstructionsHint(summaryInstructions)}${attendeesHint(expectedCount)}\n\nPOKALBIS:\n${transcriptFromSegments(segments, {})}`
+    segments,
+    emptySummary(),
+    summaryInstructions,
+    speakerNames
   );
-  let summary = parseSummary(text, segments);
-  summary = await rewriteSummaryCompressed(ai, segments, summary, summaryInstructions);
-  summary = await regenerateTitleWithGemini(ai, segments, summary, {}, summaryInstructions);
+  summary = await regenerateTitleWithGemini(ai, segments, summary, speakerNames, summaryInstructions);
   return summary;
 }
 
@@ -841,17 +886,21 @@ Grąžink tik JSON:
     finalSegments = await rebalanceSpeakers(ai, polished, input.expectedCount, inlineData);
   }
 
-  let summary = finalizeSummary(
-    {
-      title: parsed.summary?.title?.trim() || "Susitikimo užrašai",
-      narrative: parsed.summary?.narrative?.trim() || "",
-      decisions: [],
-      nextSteps: [],
-    },
-    finalSegments
-  );
-  summary = await rewriteSummaryCompressed(ai, finalSegments, summary, input.summaryInstructions);
-  summary = await regenerateTitleWithGemini(ai, finalSegments, summary, {}, input.summaryInstructions);
+  const speakerNames = strictInferSpeakerNamesFromText(finalSegments);
+  let summary: MeetingSummary;
+  try {
+    summary = await summarizeWithGemini(
+      ai,
+      finalSegments,
+      input.participants,
+      input.expectedCount,
+      speakerNames,
+      input.summaryInstructions
+    );
+  } catch (error) {
+    console.warn("Flash santrauka nepavyko, bandoma atsarginis kelias:", error);
+    summary = await fallbackSummary(ai, finalSegments, speakerNames, input.summaryInstructions);
+  }
 
   return {
     segments: finalSegments,
@@ -912,12 +961,12 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
         segments,
         input.participants,
         input.expectedCount,
-        {},
+        speakerNames,
         input.summaryInstructions
       );
     } catch (error) {
-      console.warn("Santraukos generavimas nepavyko, naudojamas supaprastintas aprašymas:", error);
-      summary = fallbackSummary(segments, speakerNames);
+      console.warn("Santraukos generavimas nepavyko, bandoma atsarginis kelias:", error);
+      summary = await fallbackSummary(ai, segments, speakerNames, input.summaryInstructions);
     }
     return {
       segments,
@@ -1041,19 +1090,34 @@ Papildomai JSON turi turėti segments masyvą su visomis Whisper atkarpomis:
     segments = await rebalanceSpeakers(ai, segments, input.expectedCount);
   }
 
+  const speakerNames = strictInferSpeakerNamesFromText(segments);
   let summary = parseSummary(completion.choices[0]?.message?.content ?? "", segments);
   if (!summary.narrative) {
     summary = { ...emptySummary(), narrative: fullText };
   }
   if (geminiKey) {
     const ai = new GoogleGenAI({ apiKey: geminiKey });
-    summary = await rewriteSummaryCompressed(ai, segments, summary, input.summaryInstructions);
-    summary = await regenerateTitleWithGemini(ai, segments, summary, {}, input.summaryInstructions);
+    try {
+      summary = await rewriteSummaryCompressed(
+        ai,
+        segments,
+        emptySummary(),
+        input.summaryInstructions,
+        speakerNames
+      );
+      summary = await regenerateTitleWithGemini(ai, segments, summary, speakerNames, input.summaryInstructions);
+    } catch (error) {
+      console.warn("Groq santraukos perrašymas nepavyko:", error);
+      summary = await fallbackSummary(ai, segments, speakerNames, input.summaryInstructions);
+    }
+  } else if (isWeakSummary(summary.narrative, segments)) {
+    summary = localBulletFallback(segments, speakerNames, input.summaryInstructions);
   }
 
   return {
     segments,
     summary,
+    speakerNames,
     provider: "groq",
     language: "lt",
     durationMs: input.durationMs,
