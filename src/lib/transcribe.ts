@@ -18,6 +18,7 @@ import {
   parseOffsetMs,
   speakerId,
   speakerName,
+  formatSpeakerLine,
   uniqueSpeakerIds,
 } from "@/lib/meeting";
 
@@ -98,7 +99,7 @@ function fallbackSummary(segments: MeetingSegment[], names: Record<string, strin
     if (!text) continue;
     const label = speakerName(speaker, names);
     const sentence = text.split(/(?<=[.!?…])\s+/).slice(0, 2).join(" ").trim();
-    snippets.push(`${label} ${sentence}`);
+    snippets.push(formatSpeakerLine(speaker, sentence, names));
   }
 
   const narrative = snippets.join("\n\n").trim() || "Nepavyko parengti aprašymo.";
@@ -136,7 +137,7 @@ function parseSummary(raw: string): MeetingSummary {
 
 function transcriptFromSegments(segments: MeetingSegment[], names: Record<string, string> = {}): string {
   return segments
-    .map((segment) => `${speakerName(segment.speaker, names)}: ${segment.text}`)
+    .map((segment) => formatSpeakerLine(segment.speaker, segment.text, names))
     .join("\n");
 }
 

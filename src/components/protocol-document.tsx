@@ -15,7 +15,9 @@ import {
   applySpeakerNamesToSummary,
   defaultSpeakerLabel,
   formatSpeakerCountLabel,
+  formatSpeakerLine,
   formatTimestamp,
+  hasCustomSpeakerName,
   listSpeakers,
   manualEditNotice,
   speakerName,
@@ -184,12 +186,10 @@ export function ProtocolDocument({
       ) : null}
 
       {!locked ? (
-        <Alert variant="destructive">
+        <Alert>
           <AlertTriangle />
-          <AlertTitle>Atsargiai</AlertTitle>
           <AlertDescription>
-            Redaguojant tekstą ranka, rezultatas bus pažymėtas kaip pakeistas, kad nebūtų klaidingai suprastas kaip
-            automatinis transkriptas.
+            Redaguojant tekstą ranka, rezultatas bus pažymėtas kaip pakeistas.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -241,36 +241,63 @@ export function ProtocolDocument({
         <TabsContent value="transcript" className="space-y-3 pt-4">
           {result.segments.map((segment, index) => {
             const tone = speakerTone(segment.speaker);
+            const customName = hasCustomSpeakerName(segment.speaker, names);
             return (
               <article key={`${segment.startMs}-${index}`} className="rounded-md border border-border/80 bg-muted/20 p-3">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <span className="font-mono text-[11px] text-muted-foreground">{formatTimestamp(segment.startMs)}</span>
-                  <label className="sr-only" htmlFor={`speaker-${index}`}>
-                    Kalbėtojas
-                  </label>
-                  {locked ? (
-                    <span className="text-xs font-medium" style={{ color: tone.fg }}>
-                      {speakerName(segment.speaker, names)}
-                    </span>
-                  ) : (
-                    <select
-                      id={`speaker-${index}`}
-                      value={segment.speaker}
-                      aria-label="Priskirti kitam kalbėtojui"
-                      onChange={(event) => patchSegment(index, { speaker: event.target.value as SpeakerId })}
-                      className="h-7 max-w-full rounded-md border border-input bg-background px-2 text-xs"
-                      style={{ color: tone.fg }}
-                    >
-                      {choices.map((id) => (
-                        <option key={id} value={id}>
-                          {speakerName(id, names)}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                  {!customName ? (
+                    <>
+                      <label className="sr-only" htmlFor={`speaker-${index}`}>
+                        Kalbėtojas
+                      </label>
+                      {locked ? (
+                        <span className="text-xs font-medium" style={{ color: tone.fg }}>
+                          {speakerName(segment.speaker, names)}
+                        </span>
+                      ) : (
+                        <select
+                          id={`speaker-${index}`}
+                          value={segment.speaker}
+                          aria-label="Priskirti kitam kalbėtojui"
+                          onChange={(event) => patchSegment(index, { speaker: event.target.value as SpeakerId })}
+                          className="h-7 max-w-full rounded-md border border-input bg-background px-2 text-xs"
+                          style={{ color: tone.fg }}
+                        >
+                          {choices.map((id) => (
+                            <option key={id} value={id}>
+                              {speakerName(id, names)}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </>
+                  ) : null}
                 </div>
                 {locked ? (
-                  <p className="text-sm leading-6 whitespace-pre-wrap">{segment.text}</p>
+                  customName ? (
+                    <p className="text-sm leading-6 whitespace-pre-wrap">
+                      <span className="font-medium" style={{ color: tone.fg }}>
+                        {speakerName(segment.speaker, names)}
+                      </span>
+                      {" - "}
+                      {segment.text}
+                    </p>
+                  ) : (
+                    <p className="text-sm leading-6 whitespace-pre-wrap">{segment.text}</p>
+                  )
+                ) : customName ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium" style={{ color: tone.fg }}>
+                      {speakerName(segment.speaker, names)} -
+                    </p>
+                    <Textarea
+                      value={segment.text}
+                      aria-label={`Replika ${index + 1}`}
+                      onChange={(event) => patchSegment(index, { text: event.target.value })}
+                      className="min-h-16 leading-6"
+                    />
+                  </div>
                 ) : (
                   <Textarea
                     value={segment.text}

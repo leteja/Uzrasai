@@ -145,6 +145,16 @@ export function speakerName(id: SpeakerId | string, names: Record<string, string
   return names[id]?.trim() || defaultSpeakerLabel(id);
 }
 
+export function hasCustomSpeakerName(id: SpeakerId | string, names: Record<string, string>): boolean {
+  return Boolean(names[id]?.trim());
+}
+
+export function formatSpeakerLine(id: SpeakerId | string, text: string, names: Record<string, string>): string {
+  const label = speakerName(id, names);
+  const separator = hasCustomSpeakerName(id, names) ? " - " : ": ";
+  return `${label}${separator}${text}`;
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -232,9 +242,7 @@ export function toTranscriptCopyText(
   if (notice) lines.push(notice, "");
 
   for (const segment of result.segments) {
-    const name = names[segment.speaker]?.trim();
-    const label = name || segment.speaker;
-    lines.push(`${label}: ${segment.text}`);
+    lines.push(formatSpeakerLine(segment.speaker, segment.text, names));
   }
 
   return lines.join("\n").trim();
@@ -265,9 +273,16 @@ export function toMarkdown(
 
   lines.push("", "## Susitikimo aprašymas", "", result.summary.narrative, "", "## Visas pokalbis pagal kalbėtojus", "");
   for (const segment of result.segments) {
-    lines.push(`**${speakerName(segment.speaker, names)}** (${formatTimestamp(segment.startMs)})`);
-    lines.push(segment.text);
-    lines.push("");
+    if (hasCustomSpeakerName(segment.speaker, names)) {
+      lines.push(
+        `**${speakerName(segment.speaker, names)}** (${formatTimestamp(segment.startMs)}) - ${segment.text}`,
+        ""
+      );
+    } else {
+      lines.push(`**${speakerName(segment.speaker, names)}** (${formatTimestamp(segment.startMs)})`);
+      lines.push(segment.text);
+      lines.push("");
+    }
   }
 
   return lines.join("\n");
