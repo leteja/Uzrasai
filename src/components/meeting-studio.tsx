@@ -10,7 +10,6 @@ import {
   Mic,
   Minus,
   Plus,
-  Search,
   Square,
   Users,
 } from "lucide-react";
@@ -411,6 +410,8 @@ export function MeetingStudio() {
         totalCount={archive.length}
         open={archiveOpen}
         onOpenChange={setArchiveOpen}
+        query={archiveQuery}
+        onQueryChange={setArchiveQuery}
         activeId={saved?.id}
         onSelect={(id) => void openArchive(id)}
         onRemove={(id) => void removeArchive(id)}
@@ -418,43 +419,26 @@ export function MeetingStudio() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <div className="flex flex-col gap-2 px-4 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="font-heading text-lg leading-none tracking-tight">Užrašai</p>
-                <p className="text-[11px] text-muted-foreground">Start · Stop · Užrašai</p>
-              </div>
-              {!status?.ready ? (
-                <Badge variant="outline" className="max-w-[12rem] text-left text-[11px] leading-4 font-normal whitespace-normal">
-                  {readyLabel}
-                </Badge>
-              ) : null}
+        <header className="border-b px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="font-heading text-lg leading-none tracking-tight">Užrašai</p>
+              <p className="text-[11px] text-muted-foreground">Start · Stop · Užrašai</p>
             </div>
-            <div className="relative">
-              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={archiveQuery}
-                onChange={(event) => setArchiveQuery(event.target.value)}
-                placeholder="Ieškoti pagal datą ar raktinius žodžius iš pavadinimo…"
-                className="pl-9"
-                aria-label="Ieškoti susitikimų"
-              />
-            </div>
+            {!status?.ready ? (
+              <Badge variant="outline" className="max-w-[12rem] text-left text-[11px] leading-4 font-normal whitespace-normal">
+                {readyLabel}
+              </Badge>
+            ) : null}
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-3xl flex-1 space-y-4 px-4 py-4">
-          {recordCard}
-
-          <details className="group rounded-xl border bg-card open:shadow-sm">
-            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium marker:content-none [&::-webkit-details-marker]:hidden">
-              Dalyviai ir aprašymo nustatymai
-            </summary>
-            <div className="space-y-4 border-t px-4 py-4">
+        <main className="flex-1 px-4 py-4">
+          <div className="mx-auto grid max-w-6xl items-start gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+            <div className="space-y-4">
               <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-base">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
                     <Users className="size-4" />
                     Dalyvių skaičius
                   </CardTitle>
@@ -513,13 +497,14 @@ export function MeetingStudio() {
               </Card>
 
               <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-base">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
                     <FileText className="size-4" />
                     Aprašymo instrukcijos
                   </CardTitle>
                   <CardDescription>
-                    Trumpas ar detalus aprašymas, punktais ar pastraipomis.
+                    Parašykite, kokio aprašymo norite: trumpo ar detalaus, punktais ar pastraipomis, ką pridėti ar
+                    praleisti.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -544,77 +529,93 @@ export function MeetingStudio() {
                       value={summaryInstructions}
                       disabled={processing || recorder.isRecording}
                       onChange={(event) => setSummaryInstructions(event.target.value)}
-                      placeholder="Pvz.: Trumpas aprašymas. Pridėkite biudžeto skaičius."
-                      className="min-h-24 leading-6"
+                      placeholder="Pvz.: Trumpas aprašymas. Pridėkite biudžeto skaičius. Nepaminėkite asmeninių pokalbių. Rašyk punktais."
+                      className="min-h-28 leading-6"
                     />
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    {summaryInstructions.trim()
+                      ? "Instrukcijos bus pritaikytos generuojant aprašymą."
+                      : "Palikite tuščią — bus naudojamas numatytasis aprašymas."}
+                  </p>
                 </CardContent>
               </Card>
             </div>
-          </details>
 
-          {displayError ? (
-            <Alert variant="destructive">
-              <AlertCircle />
-              <AlertTitle>Nepavyko</AlertTitle>
-              <AlertDescription>{displayError}</AlertDescription>
-            </Alert>
-          ) : null}
+            <div className="space-y-4">
+              {displayError ? (
+                <Alert variant="destructive">
+                  <AlertCircle />
+                  <AlertTitle>Nepavyko</AlertTitle>
+                  <AlertDescription>{displayError}</AlertDescription>
+                </Alert>
+              ) : null}
 
-          {result && saved ? (
-            <Card>
-              <CardHeader className="gap-4">
-                <div>
-                  <CardTitle className="font-heading text-2xl text-balance">
-                    {normalizeMeetingTitle(result.summary.title)}
-                  </CardTitle>
-                  <CardDescription>
-                    {formatClock(result.durationMs)} · {formatSpeakerCountLabel(result.speakerCount, saved.expectedCount)}
-                  </CardDescription>
-                </div>
+              {!result && !processing ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Dar nėra užrašų</CardTitle>
+                    <CardDescription>Spauskite Start ir pradėkite kalbėti.</CardDescription>
+                  </CardHeader>
+                </Card>
+              ) : null}
 
-                <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="email-to">Siųsti aprašymą el. paštu</Label>
-                    <Input
-                      id="email-to"
-                      type="email"
-                      placeholder="vardas@imone.lt"
-                      value={emailTo}
-                      onChange={(event) => {
-                        setEmailTo(event.target.value);
-                        setEmailState("idle");
-                      }}
+              {result && saved ? (
+                <Card>
+                  <CardHeader className="gap-4">
+                    <div>
+                      <CardTitle className="font-heading text-2xl text-balance">
+                        {normalizeMeetingTitle(result.summary.title)}
+                      </CardTitle>
+                      <CardDescription>
+                        {formatClock(result.durationMs)} · {formatSpeakerCountLabel(result.speakerCount, saved.expectedCount)}
+                      </CardDescription>
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="email-to">Siųsti aprašymą el. paštu</Label>
+                        <Input
+                          id="email-to"
+                          type="email"
+                          placeholder="vardas@imone.lt"
+                          value={emailTo}
+                          onChange={(event) => {
+                            setEmailTo(event.target.value);
+                            setEmailState("idle");
+                          }}
+                        />
+                      </div>
+                      <Button className="self-end" onClick={() => void sendEmail()} disabled={emailState === "sending"}>
+                        {emailState === "sending" ? <Loader2 className="animate-spin" /> : <Mail />}
+                        {emailState === "sent" ? "Išsiųsta" : "Siųsti laišką"}
+                      </Button>
+                    </div>
+                    {emailError ? <p className="text-xs text-destructive">{emailError}</p> : null}
+                  </CardHeader>
+                  <CardContent>
+                    <ProtocolDocument
+                      saved={saved}
+                      onUpdate={persistMeeting}
+                      onLock={() => void lockMeeting()}
+                      onUnlock={() => void unlockMeeting()}
                     />
-                  </div>
-                  <Button className="self-end" onClick={() => void sendEmail()} disabled={emailState === "sending"}>
-                    {emailState === "sending" ? <Loader2 className="animate-spin" /> : <Mail />}
-                    {emailState === "sent" ? "Išsiųsta" : "Siųsti laišką"}
-                  </Button>
-                </div>
-                {emailError ? <p className="text-xs text-destructive">{emailError}</p> : null}
-              </CardHeader>
-              <CardContent>
-                <ProtocolDocument
-                  saved={saved}
-                  onUpdate={persistMeeting}
-                  onLock={() => void lockMeeting()}
-                  onUnlock={() => void unlockMeeting()}
-                />
-              </CardContent>
-            </Card>
-          ) : null}
+                  </CardContent>
+                </Card>
+              ) : null}
 
-          {!status?.ready ? (
-            <details className="rounded-xl border bg-card">
-              <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium marker:content-none [&::-webkit-details-marker]:hidden">
-                Savininko nustatymas (vieną kartą)
-              </summary>
-              <div className="border-t px-1 pb-1">
-                <SetupGuide status={status} />
-              </div>
-            </details>
-          ) : null}
+              {!status?.ready ? (
+                <details className="rounded-xl border bg-card">
+                  <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium marker:content-none [&::-webkit-details-marker]:hidden">
+                    Savininko nustatymas (vieną kartą)
+                  </summary>
+                  <div className="border-t px-1 pb-1">
+                    <SetupGuide status={status} />
+                  </div>
+                </details>
+              ) : null}
+            </div>
+          </div>
         </main>
       </div>
     </div>

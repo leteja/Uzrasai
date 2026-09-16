@@ -1,8 +1,9 @@
 "use client";
 
-import { ChevronLeft, PanelLeftOpen, Trash2 } from "lucide-react";
+import { ChevronLeft, PanelLeftOpen, Search, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { type MeetingListItem, formatClock, normalizeMeetingTitle } from "@/lib/meeting";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +12,8 @@ type MeetingArchiveSidebarProps = {
   totalCount: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  query: string;
+  onQueryChange: (query: string) => void;
   activeId?: string;
   onSelect: (id: string) => void;
   onRemove: (id: string) => void;
@@ -82,6 +85,8 @@ export function MeetingArchiveSidebar({
   totalCount,
   open,
   onOpenChange,
+  query,
+  onQueryChange,
   activeId,
   onSelect,
   onRemove,
@@ -90,7 +95,7 @@ export function MeetingArchiveSidebar({
 }: MeetingArchiveSidebarProps) {
   if (!open) {
     return (
-      <aside className={cn("flex w-11 shrink-0 flex-col items-center border-r py-3", className)}>
+      <aside className={cn("flex w-11 shrink-0 flex-col items-center border-r bg-background py-3", className)}>
         <Button
           type="button"
           variant="ghost"
@@ -114,17 +119,29 @@ export function MeetingArchiveSidebar({
   }
 
   return (
-    <aside className={cn("flex w-72 shrink-0 flex-col border-r", className)}>
+    <aside className={cn("flex w-72 shrink-0 flex-col border-r bg-background", className)}>
       <div className="flex items-center justify-between border-b px-3 py-2.5">
         <div>
           <p className="text-sm font-medium">Praeiti susitikimai</p>
           <p className="text-[11px] text-muted-foreground">
-            {items.length} iš {totalCount} · filtras viršuje
+            {items.length} iš {totalCount}
           </p>
         </div>
         <Button type="button" variant="ghost" size="icon-xs" onClick={() => onOpenChange(false)} aria-label="Suskleisti">
           <ChevronLeft />
         </Button>
+      </div>
+      <div className="border-b px-3 py-2">
+        <div className="relative">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            placeholder="Data ar pavadinimas…"
+            className="h-8 pl-8 text-xs"
+            aria-label="Ieškoti susitikimų"
+          />
+        </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         <MeetingList
@@ -136,32 +153,5 @@ export function MeetingArchiveSidebar({
         />
       </div>
     </aside>
-  );
-}
-
-export function MeetingArchivePanel({
-  items,
-  totalCount,
-  activeId,
-  onSelect,
-  onRemove,
-  emptyMessage,
-  className,
-}: Omit<MeetingArchiveSidebarProps, "open" | "onOpenChange">) {
-  return (
-    <div className={cn("rounded-xl border bg-card p-3", className)}>
-      <p className="mb-2 text-sm font-medium">
-        Praeiti susitikimai <span className="text-muted-foreground">({items.length}/{totalCount})</span>
-      </p>
-      <div className="max-h-56 overflow-y-auto">
-        <MeetingList
-          items={items}
-          activeId={activeId}
-          onSelect={onSelect}
-          onRemove={onRemove}
-          emptyMessage={emptyMessage}
-        />
-      </div>
-    </div>
   );
 }
