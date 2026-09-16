@@ -5,6 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { GoogleGenAI } from "@google/genai";
 import Groq from "groq-sdk";
+import ffmpegStatic from "ffmpeg-static";
 import { getGeminiKey, getGroqKey, getProviderStatus } from "@/lib/env";
 import { TRANSCRIBE_MODEL, geminiJsonText, publicGeminiError } from "@/lib/gemini";
 import {
@@ -22,6 +23,30 @@ import {
 
 const execFileAsync = promisify(execFile);
 const CHUNK_SECONDS = 24 * 60;
+
+function resolveFfmpegPath(): string {
+  if (ffmpegStatic) return ffmpegStatic;
+  return "ffmpeg";
+}
+
+function needsLongSplit(durationMs: number): boolean {
+  return durationMs > CHUNK_SECONDS * 1000 + 30_000;
+}
+
+async function prepareGeminiAudio(
+  buffer: Buffer,
+  mimeType: string,
+  durationMs: number
+): Promise<{ buffer: Buffer; mimeType: string }> {
+  const normalized = asGeminiMime(mimeType);
+  if (normalized.includes("mpeg") || normalized.includes("mp3")) {
+    return { buffer, mimeType: normalized };
+  }
+  if (!needsLongSplit(durationMs)) {
+    return { buffer, mimeType: normalized };
+  }
+  return toMp3(buffer, mimeType);
+}
 
 const SUMMARY_PROMPT = `Tu esi susitikimų sekretorius. Dirbi tik lietuvių kalba.
 Gavai pažodžiui transkribuotą pokalbį su kalbėtojų žymėmis. Pokalbyje gali būti iki ${MAX_SPEAKERS} žmonių.
@@ -351,7 +376,7 @@ async function toMp3(buffer: Buffer, mimeType: string): Promise<{ buffer: Buffer
   try {
     await writeFile(inputPath, buffer);
     await execFileAsync(
-      "ffmpeg",
+      resolveFfmpegPath(),
       ["-y", "-i", inputPath, "-ar", "16000", "-ac", "1", "-c:a", "libmp3lame", "-q:a", "5", outputPath],
       { timeout: 180_000 }
     );
@@ -377,7 +402,7 @@ async function splitAudioChunks(
   try {
     await writeFile(inputPath, buffer);
     await execFileAsync(
-      "ffmpeg",
+      resolveFfmpegPath(),
       [
         "-y",
         "-i",
@@ -508,7 +533,7 @@ Grąžink tik JSON:
     "narrative": "3–8 pastraipos"
   }
 }`,
-    audio: { mimeType: "audio/mp3", data: inlineData.data },
+    audio: { mimeType: inlineData.mimeType, data: inlineData.data },
   });
 
   const parsed = JSON.parse(text) as {
@@ -550,8 +575,8 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
   if (!apiKey) throw new Error("Trūksta GEMINI_API_KEY.");
 
   const ai = new GoogleGenAI({ apiKey });
-  const mp3 = await toMp3(input.buffer, input.mimeType);
-  const chunks = await splitAudioChunks(mp3.buffer, mp3.mimeType, input.durationMs);
+  const prepared = await prepareGeminiAudio(input.buffer, input.mimeType, input.durationMs);
+  const chunks = await splitAudioChunks(prepared.buffer, prepared.mimeType, input.durationMs);
 
   const transcribedChunks: MeetingSegment[][] = [];
   for (const chunk of chunks) {
@@ -601,8 +626,8 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
 
   console.warn("Gemini Transcribe negrąžino teksto, bandoma Flash su garsu.");
   return processWithGeminiFlash(ai, input, {
-    mimeType: mp3.mimeType,
-    data: mp3.buffer.toString("base64"),
+    mimeType: prepared.mimeType,
+    data: prepared.buffer.toString("base64"),
   });
 }
 

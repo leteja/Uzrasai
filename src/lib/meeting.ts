@@ -59,6 +59,13 @@ export type ProviderStatus = {
   preferred: "gemini" | "groq" | "demo";
   defaultEmail: string;
   storage: "supabase" | "file";
+  diagnostics?: {
+    geminiKeyLength: number;
+    groqKeyLength: number;
+    supabaseUrlSet: boolean;
+    supabaseServiceRoleLength: number;
+    vercelEnv: string;
+  };
 };
 
 export function speakerId(index: number): SpeakerId {

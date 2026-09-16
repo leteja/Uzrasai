@@ -21,8 +21,12 @@ export function getDefaultEmailTo(): string {
 }
 
 export function getProviderStatus() {
-  const gemini = Boolean(getGeminiKey());
-  const groq = Boolean(getGroqKey());
+  const geminiKey = getGeminiKey()?.trim() ?? "";
+  const groqKey = getGroqKey()?.trim() ?? "";
+  const supabaseUrl = process.env.SUPABASE_URL?.trim() ?? "";
+  const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? "";
+  const gemini = Boolean(geminiKey);
+  const groq = Boolean(groqKey);
   return {
     gemini,
     groq,
@@ -31,5 +35,12 @@ export function getProviderStatus() {
     preferred: gemini ? ("gemini" as const) : groq ? ("groq" as const) : ("demo" as const),
     defaultEmail: getDefaultEmailTo(),
     storage: getStorageMode(),
+    diagnostics: {
+      geminiKeyLength: geminiKey.length,
+      groqKeyLength: groqKey.length,
+      supabaseUrlSet: Boolean(supabaseUrl),
+      supabaseServiceRoleLength: supabaseServiceRole.length,
+      vercelEnv: process.env.VERCEL_ENV ?? "local",
+    },
   };
 }

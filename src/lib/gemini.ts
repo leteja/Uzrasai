@@ -35,6 +35,9 @@ export async function geminiJsonText(ai: GoogleGenAI, input: GeminiJsonInput): P
 }
 
 function friendlyGeminiMessage(message: string): string {
+  if (message.includes("ENOENT") && message.includes("ffmpeg")) {
+    return "Garso konvertavimo klaida serveryje. Bandykite dar kartą po deploy atnaujinimo.";
+  }
   if (message.includes("legacy Interactions API")) {
     return "Gemini API schema pasikeitė. Serveryje atnaujintas SDK — perkraukite puslapį ir bandykite dar kartą.";
   }
