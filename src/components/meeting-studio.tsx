@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
-  ArrowLeft,
   ArrowRight,
   FileAudio,
   FileText,
@@ -12,6 +11,7 @@ import {
   Mic,
   Minus,
   Plus,
+  RotateCcw,
   Square,
   Users,
 } from "lucide-react";
@@ -42,6 +42,12 @@ import {
 import { cn } from "@/lib/utils";
 
 type StudioStep = "setup" | "record" | "result";
+
+const STUDIO_STEPS: { id: StudioStep; label: string }[] = [
+  { id: "setup", label: "Pasirinkimai" },
+  { id: "record", label: "Įrašymas" },
+  { id: "result", label: "Užrašai" },
+];
 
 const PROCESS_STEPS = [
   "Siunčiamas įrašas",
@@ -311,8 +317,17 @@ export function MeetingStudio() {
     setEmailState("idle");
     setEmailError(null);
     captions.reset();
+    autoStopped.current = false;
     setStep("setup");
   }
+
+  function goToSetupFromRecord() {
+    if (recorder.isRecording || processing) return;
+    setError(null);
+    setStep("setup");
+  }
+
+  const stepIndex = STUDIO_STEPS.findIndex((item) => item.id === step);
 
   async function sendEmail() {
     if (!saved) return;
@@ -368,6 +383,40 @@ export function MeetingStudio() {
 
         <main className="flex-1 px-6 pb-8">
           <div className="mx-auto w-full max-w-2xl space-y-5">
+            <nav aria-label="Susitikimo žingsniai" className="flex items-center justify-center gap-1 sm:gap-2">
+              {STUDIO_STEPS.map((item, index) => {
+                const isCurrent = item.id === step;
+                const isComplete = index < stepIndex;
+                const canOpenSetupFromResult = step === "result" && item.id === "setup";
+
+                return (
+                  <div key={item.id} className="flex items-center gap-1 sm:gap-2">
+                    {index > 0 ? <span className="text-muted-foreground/40">·</span> : null}
+                    {canOpenSetupFromResult ? (
+                      <button
+                        type="button"
+                        onClick={startNewMeeting}
+                        className="rounded-full px-2.5 py-1 text-xs font-medium text-primary transition hover:bg-primary/10 sm:text-sm"
+                      >
+                        {item.label}
+                      </button>
+                    ) : (
+                      <span
+                        className={cn(
+                          "rounded-full px-2.5 py-1 text-xs sm:text-sm",
+                          isCurrent && "bg-primary/10 font-medium text-primary",
+                          isComplete && "text-muted-foreground",
+                          !isCurrent && !isComplete && "text-muted-foreground/50"
+                        )}
+                      >
+                        {item.label}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </nav>
+
             {step === "setup" ? (
               <Card>
                 <CardHeader className="pb-3">
@@ -491,9 +540,8 @@ export function MeetingStudio() {
               <Card>
                 <CardContent className="space-y-5 pt-6">
                   {!recorder.isRecording && !processing ? (
-                    <Button variant="ghost" size="sm" className="-ml-2 gap-1 text-muted-foreground" onClick={() => setStep("setup")}>
-                      <ArrowLeft className="size-4" />
-                      Atgal į nustatymus
+                    <Button variant="ghost" size="sm" className="-ml-2 gap-1 text-muted-foreground" onClick={goToSetupFromRecord}>
+                      Keisti pasirinkimus
                     </Button>
                   ) : null}
 
@@ -579,8 +627,9 @@ export function MeetingStudio() {
                         {formatClock(result.durationMs)} · {formatSpeakerCountLabel(result.speakerCount, saved.expectedCount)}
                       </span>
                     </div>
-                    <Button variant="outline" size="sm" onClick={startNewMeeting}>
-                      Naujas įrašas
+                    <Button variant="outline" size="sm" className="gap-1.5" onClick={startNewMeeting}>
+                      <RotateCcw className="size-3.5" />
+                      Įrašyti per naujo
                     </Button>
                   </div>
 
@@ -605,13 +654,22 @@ export function MeetingStudio() {
                   </div>
                   {emailError ? <p className="text-xs text-destructive">{emailError}</p> : null}
                 </CardHeader>
-                <CardContent className="pt-5">
+                <CardContent className="space-y-6 pt-5">
                   <ProtocolDocument
                     saved={saved}
                     onUpdate={persistMeeting}
                     onLock={() => void lockMeeting()}
                     onUnlock={() => void unlockMeeting()}
                   />
+                  <div className="flex flex-col items-stretch gap-3 border-t border-border/60 pt-5 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm text-muted-foreground">
+                      Norite kito susitikimo? Pradėkite nuo dalyvių skaičiaus ir aprašymo formos.
+                    </p>
+                    <Button size="lg" className="gap-2 sm:shrink-0" onClick={startNewMeeting}>
+                      <RotateCcw className="size-4" />
+                      Įrašyti per naujo
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ) : null}
