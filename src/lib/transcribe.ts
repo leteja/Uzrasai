@@ -7,6 +7,12 @@ import { GoogleGenAI } from "@google/genai";
 import Groq from "groq-sdk";
 import ffmpegStatic from "ffmpeg-static";
 import { getGeminiKey, getGroqKey, getProviderStatus } from "@/lib/env";
+import {
+  NoSpeechDetectedError,
+  assertAudioHasSpeech,
+  assertUsableSpeech,
+  countSegmentWords,
+} from "@/lib/audio-validation";
 import { TRANSCRIBE_MODEL, geminiJsonText, publicGeminiError } from "@/lib/gemini";
 import {
   MAX_SPEAKERS,
@@ -60,6 +66,8 @@ tomorrow, today, yesterday, weekend, meeting, call, deadline, feedback, okay, ok
 update, email, team, target, budget, launch, online, offline, status, marketing, design, product, sprint, backlog,
 follow-up, check-in, slide, deck, report, issue, bug, fix, test, demo, share, link, post, chat.
 Klaidingi pavyzdžiai: „tomoro“, „mitingas“, „imeilas“, „tudėja“ — turi būti tomorrow, meeting, email, today.`;
+
+const SILENCE_GUARD = `SVARBU: Jei garsas tylus, be kalbos ar neįmanoma suprasti — grąžink tuščius segmentus arba palik tuos pačius. NIKADA neišgalvok dialogo, sakinių ar kalbėtojų.`;
 
 const WHISPER_ANGLICISM_PROMPT =
   "Mixed Lithuanian and English speech. English words spelled correctly: tomorrow, today, yesterday, weekend, meeting, call, deadline, feedback, okay, sorry, please, thanks, update, email, team, target, budget, launch, marketing, status, online, offline, ok, yes, no.";
@@ -610,6 +618,7 @@ async function repairSegmentsWithAudio(
   try {
     const text = await geminiJsonText(ai, {
       text: `Klausyk garso ir pataisyk transkripciją. Pokalbis lietuviškai su angliškais žodžiais.
+${SILENCE_GUARD}
 ${ANGLICISM_HINT}
 ${attendeesHint(expectedCount)}
 
@@ -640,6 +649,7 @@ async function repairMixedLanguageSegments(ai: GoogleGenAI, segments: MeetingSeg
     const text = await geminiJsonText(
       ai,
       `Pataisyk transkripciją lietuviškai. Suprask kontekstą — taisyk klaidingai atpažintus žodžius pagal prasmę.
+${SILENCE_GUARD}
 ${ANGLICISM_HINT}
 - Naudok teisingą lietuvių skyrybą: taškai, kableliai, klaustukai.
 - Sutrauk per ilgus segmentus į aiškius sakinius.
@@ -843,11 +853,13 @@ async function processWithGeminiFlash(
     : "";
 
   const text = await geminiJsonText(ai, {
-    text: `Transkribuok šį susitikimo įrašą (daugiausia lietuviškai, gali trukti iki valandos, keli žmonės kambaryje).
+    text: `Transkribuok TIK tai, kas tikrai pasakyta gars įraše (daugiausia lietuviškai).
+${SILENCE_GUARD}
 ${ANGLICISM_HINT}
-Atskirk balsus SPEAKER_1, SPEAKER_2, SPEAKER_3... iki SPEAKER_${MAX_SPEAKERS} pagal tai, kas kalba — ne pagal sakinių eilę, o pagal balsą.
+Atskirk balsus SPEAKER_1, SPEAKER_2... pagal tai, kas kalba — ne pagal sakinių eilę, o pagal balsą.
 Jei girdėti tik vienas balsas, visus segmentus žymėk SPEAKER_1.
-Tada parašyk viso pokalbio SUTRUMPINTĄ aprašymą lietuviškai: perfrazuok, ne cituok. Aprašymas turi būti ~20–35% transkripto ilgio.
+Jei niekas nekalbėjo — grąžink tuščius segments ir tuščius summary laukus.
+Tada parašyk SUTRUMPINTĄ aprašymą tik pagal tai, kas tikrai pasakyta.
 ${summaryInstructionsHint(input.summaryInstructions)}${attendeesHint(input.expectedCount)}
 ${hint}
 
@@ -877,12 +889,12 @@ Grąžink tik JSON:
   );
 
   if (segments.length === 0) {
-    throw new Error("Gemini negrąžino transkripcijos.");
+    throw new NoSpeechDetectedError();
   }
 
   const polished = await repairMixedLanguageSegments(ai, segments);
   let finalSegments = polished;
-  if (input.expectedCount && input.expectedCount > 1) {
+  if (input.expectedCount && input.expectedCount > 1 && countSegmentWords(polished) >= 20) {
     finalSegments = await rebalanceSpeakers(ai, polished, input.expectedCount, inlineData);
   }
 
@@ -902,20 +914,31 @@ Grąžink tik JSON:
     summary = await fallbackSummary(ai, finalSegments, speakerNames, input.summaryInstructions);
   }
 
-  return {
+  return finalizeGeminiResult(input, {
     segments: finalSegments,
     summary,
+    speakerNames,
     provider: "gemini",
     language: "lt",
     durationMs: input.durationMs,
     speakerCount: uniqueSpeakers(polished),
     note: "Naudotas Gemini Flash garso supratimas (atsarginis kelias ilgam įrašui).",
-  };
+  });
+}
+
+async function finalizeGeminiResult(
+  input: AudioInput,
+  result: MeetingResult
+): Promise<MeetingResult> {
+  await assertUsableSpeech(input.buffer, input.mimeType, result.segments, input.durationMs);
+  return result;
 }
 
 async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
   const apiKey = getGeminiKey();
   if (!apiKey) throw new Error("Trūksta GEMINI_API_KEY.");
+
+  await assertAudioHasSpeech(input.buffer, input.mimeType);
 
   const ai = new GoogleGenAI({ apiKey });
   const prepared = await prepareGeminiAudio(input.buffer, input.mimeType, input.durationMs);
@@ -945,7 +968,7 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
       segments = await repairSegmentsWithAudio(ai, repairAudio, segments, input.expectedCount);
     }
     segments = await repairMixedLanguageSegments(ai, segments);
-    if (input.expectedCount && input.expectedCount > 1) {
+    if (input.expectedCount && input.expectedCount > 1 && countSegmentWords(segments) >= 20) {
       segments = await rebalanceSpeakers(
         ai,
         segments,
@@ -968,6 +991,7 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
       console.warn("Santraukos generavimas nepavyko, bandoma atsarginis kelias:", error);
       summary = await fallbackSummary(ai, segments, speakerNames, input.summaryInstructions);
     }
+    await assertUsableSpeech(input.buffer, input.mimeType, segments, input.durationMs);
     return {
       segments,
       summary,
@@ -983,6 +1007,10 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
     };
   }
 
+  if (input.durationMs < 10_000) {
+    throw new NoSpeechDetectedError();
+  }
+
   console.warn("Gemini Transcribe negrąžino teksto, bandoma Flash su garsu.");
   return processWithGeminiFlash(ai, input, {
     mimeType: prepared.mimeType,
@@ -993,6 +1021,8 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
 async function processWithGroq(input: AudioInput): Promise<MeetingResult> {
   const apiKey = getGroqKey();
   if (!apiKey) throw new Error("Trūksta GROQ_API_KEY.");
+
+  await assertAudioHasSpeech(input.buffer, input.mimeType);
 
   const groq = new Groq({ apiKey });
   const file = new File([new Uint8Array(input.buffer)], input.filename, { type: asGeminiMime(input.mimeType) });
@@ -1113,6 +1143,8 @@ Papildomai JSON turi turėti segments masyvą su visomis Whisper atkarpomis:
   } else if (isWeakSummary(summary.narrative, segments)) {
     summary = localBulletFallback(segments, speakerNames, input.summaryInstructions);
   }
+
+  await assertUsableSpeech(input.buffer, input.mimeType, segments, input.durationMs);
 
   return {
     segments,

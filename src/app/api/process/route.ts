@@ -72,9 +72,14 @@ export async function POST(request: Request) {
 
     return NextResponse.json(saved);
   } catch (error) {
-    const message = publicGeminiError(error);
+    const message =
+      error instanceof Error &&
+      (error.name === "NoSpeechDetectedError" || error.name === "UnreliableTranscriptError")
+        ? error.message
+        : publicGeminiError(error);
     const code = error && typeof error === "object" && "code" in error ? String(error.code) : undefined;
-    const status = code === "NO_PROVIDER" ? 503 : 500;
+    const status =
+      code === "NO_PROVIDER" ? 503 : code === "NO_SPEECH" || code === "UNRELIABLE_TRANSCRIPT" ? 400 : 500;
     console.error("process meeting failed:", error);
     return NextResponse.json({ error: message, code }, { status });
   }

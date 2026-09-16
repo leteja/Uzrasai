@@ -122,8 +122,8 @@ export function useAudioRecorder() {
     setState("idle");
     setElapsedMs(durationMs);
 
-    if (blob.size < 2000 || durationMs < 1500) {
-      setError("Įrašas per trumpas. Palaukite bent porą sekundžių ir kalbėkite arčiau mikrofono.");
+    if (blob.size < 4000 || durationMs < 3000) {
+      setError("Įrašas per trumpas arba tylus. Kalbėkite bent 3 sekundes aiškiai arčiau mikrofono.");
       return null;
     }
 
