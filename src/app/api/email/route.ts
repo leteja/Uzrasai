@@ -57,11 +57,20 @@ export async function POST(request: Request) {
     to: recipients,
     subject: `Susitikimo užrašai: ${meeting.result.summary.title}`,
     html,
-    text: toSummaryCopyText(meeting.result, meeting.createdAt),
+    text: toSummaryCopyText(meeting.result, meeting.createdAt, meeting.manuallyEdited, meeting.editedAt),
     attachments: [
       {
         filename: "pokalbis.txt",
-        content: Buffer.from(toTranscriptCopyText(meeting.result, meeting.speakerNames, meeting.createdAt), "utf-8"),
+        content: Buffer.from(
+          toTranscriptCopyText(
+            meeting.result,
+            meeting.speakerNames,
+            meeting.createdAt,
+            meeting.manuallyEdited,
+            meeting.editedAt
+          ),
+          "utf-8"
+        ),
       },
     ],
   });

@@ -40,6 +40,8 @@ export type SavedMeeting = {
   result: MeetingResult;
   locked: boolean;
   lockedAt?: string;
+  manuallyEdited?: boolean;
+  editedAt?: string;
 };
 
 export type MeetingListItem = {
@@ -133,6 +135,62 @@ export function speakerName(id: SpeakerId | string, names: Record<string, string
   return names[id]?.trim() || defaultSpeakerLabel(id);
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function replaceLabel(text: string, from: string, to: string): string {
+  if (!from || from === to) return text;
+  return text.replace(new RegExp(`\\b${escapeRegExp(from)}\\b`, "gi"), to);
+}
+
+export function applySpeakerNameToText(
+  text: string,
+  speaker: SpeakerId,
+  name: string,
+  previousName?: string
+): string {
+  const trimmed = name.trim();
+  const label = defaultSpeakerLabel(speaker);
+  let updated = text;
+
+  if (previousName?.trim()) {
+    updated = replaceLabel(updated, previousName.trim(), trimmed || label);
+  }
+
+  updated = replaceLabel(updated, label, trimmed || label);
+  updated = replaceLabel(updated, speaker, trimmed || label);
+
+  return updated;
+}
+
+export function applySpeakerNamesToSummary(
+  summary: MeetingSummary,
+  names: Record<string, string>,
+  previousNames: Record<string, string> = {}
+): MeetingSummary {
+  let { title, narrative } = summary;
+  const speakers = Object.keys(names)
+    .filter((key) => names[key]?.trim())
+    .sort((a, b) => speakerNumber(b) - speakerNumber(a)) as SpeakerId[];
+
+  for (const speaker of speakers) {
+    const name = names[speaker] ?? "";
+    title = applySpeakerNameToText(title, speaker, name, previousNames[speaker]);
+    narrative = applySpeakerNameToText(narrative, speaker, name, previousNames[speaker]);
+  }
+
+  return { ...summary, title, narrative };
+}
+
+export function manualEditNotice(manuallyEdited?: boolean, editedAt?: string): string {
+  if (!manuallyEdited) return "";
+  if (editedAt) {
+    return `Pastaba: šis tekstas po automatinio generavimo buvo rankiniu būdu keistas (${new Date(editedAt).toLocaleString("lt-LT")}).`;
+  }
+  return "Pastaba: šis tekstas po automatinio generavimo buvo rankiniu būdu keistas.";
+}
+
 export function uniqueSpeakerIds(segments: MeetingSegment[]): SpeakerId[] {
   const ids = [...new Set(segments.map((segment) => segment.speaker))];
   return ids.length > 0 ? ids : listSpeakers(1);
@@ -142,18 +200,26 @@ export function withSpeakerCount(result: MeetingResult): MeetingResult {
   return { ...result, speakerCount: uniqueSpeakerIds(result.segments).length };
 }
 
-export function toSummaryCopyText(result: MeetingResult, createdAt: string): string {
+export function toSummaryCopyText(result: MeetingResult, createdAt: string, manuallyEdited?: boolean, editedAt?: string): string {
   const date = new Date(createdAt).toLocaleString("lt-LT");
-  return [date, "", result.summary.narrative.trim()].join("\n").trim();
+  const notice = manualEditNotice(manuallyEdited, editedAt);
+  const parts = [date, ""];
+  if (notice) parts.push(notice, "");
+  parts.push(result.summary.narrative.trim());
+  return parts.join("\n").trim();
 }
 
 export function toTranscriptCopyText(
   result: MeetingResult,
   names: Record<string, string>,
-  createdAt: string
+  createdAt: string,
+  manuallyEdited?: boolean,
+  editedAt?: string
 ): string {
   const date = new Date(createdAt).toLocaleString("lt-LT");
+  const notice = manualEditNotice(manuallyEdited, editedAt);
   const lines = [date, ""];
+  if (notice) lines.push(notice, "");
 
   for (const segment of result.segments) {
     const name = names[segment.speaker]?.trim();
@@ -169,7 +235,9 @@ export function toMarkdown(
   names: Record<string, string>,
   participants: string[] = [],
   expectedCount = 0,
-  locked = false
+  locked = false,
+  manuallyEdited = false,
+  editedAt?: string
 ): string {
   const date = new Date().toLocaleString("lt-LT");
   const lines = [
@@ -177,8 +245,11 @@ export function toMarkdown(
     "",
     `Data: ${date}`,
     `Trukmė: ${formatClock(result.durationMs)}`,
-    `Protokolas: ${locked ? "užrakintas (teksto keisti negalima)" : "neužrakintas (galima taisyti klaidas)"}`,
+    `Protokolas: ${locked ? "užrakintas (teksto keisti negalima)" : "atrakintas redagavimui"}`,
   ];
+
+  const notice = manualEditNotice(manuallyEdited, editedAt);
+  if (notice) lines.push(notice);
 
   if (expectedCount > 0) {
     lines.push(`Prabilo ${result.speakerCount} iš ${expectedCount}.`);

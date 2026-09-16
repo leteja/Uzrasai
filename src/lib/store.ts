@@ -16,6 +16,8 @@ type MeetingRow = {
   result: SavedMeeting["result"];
   locked: boolean;
   locked_at: string | null;
+  manually_edited?: boolean | null;
+  edited_at?: string | null;
 };
 
 function toRow(meeting: SavedMeeting): MeetingRow {
@@ -30,6 +32,8 @@ function toRow(meeting: SavedMeeting): MeetingRow {
     result: meeting.result,
     locked: meeting.locked,
     locked_at: meeting.lockedAt ?? null,
+    manually_edited: Boolean(meeting.manuallyEdited),
+    edited_at: meeting.editedAt ?? null,
   };
 }
 
@@ -45,6 +49,8 @@ function fromRow(row: MeetingRow): SavedMeeting {
     result: row.result,
     locked: Boolean(row.locked),
     lockedAt: row.locked_at ?? undefined,
+    manuallyEdited: Boolean(row.manually_edited),
+    editedAt: row.edited_at ?? undefined,
   };
 }
 

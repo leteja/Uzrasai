@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, Lock, LockOpen } from "lucide-react";
+import { AlertTriangle, Check, Copy, Lock, LockOpen } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,9 +12,11 @@ import {
   MAX_SPEAKERS,
   type SavedMeeting,
   type SpeakerId,
+  applySpeakerNamesToSummary,
   defaultSpeakerLabel,
   formatTimestamp,
   listSpeakers,
+  manualEditNotice,
   speakerName,
   speakerTone,
   toMarkdown,
@@ -22,7 +25,6 @@ import {
   uniqueSpeakerIds,
   withSpeakerCount,
 } from "@/lib/meeting";
-import { cn } from "@/lib/utils";
 
 function speakerChoices(saved: SavedMeeting): SpeakerId[] {
   const present = uniqueSpeakerIds(saved.result.segments).length;
@@ -33,10 +35,12 @@ export function ProtocolDocument({
   saved,
   onUpdate,
   onLock,
+  onUnlock,
 }: {
   saved: SavedMeeting;
-  onUpdate: (next: SavedMeeting) => void;
+  onUpdate: (next: SavedMeeting, options?: { nameSync?: boolean }) => void;
   onLock: () => void;
+  onUnlock: () => void;
 }) {
   const [copiedSummary, setCopiedSummary] = useState(false);
   const [copiedTranscript, setCopiedTranscript] = useState(false);
@@ -45,56 +49,85 @@ export function ProtocolDocument({
   const speakers = uniqueSpeakerIds(saved.result.segments);
   const choices = speakerChoices(saved);
   const result = saved.result;
+  const editNotice = manualEditNotice(saved.manuallyEdited, saved.editedAt);
 
-  function commit(next: SavedMeeting) {
-    onUpdate({
+  function commit(next: SavedMeeting, options?: { nameSync?: boolean }) {
+    onUpdate(
+      {
+        ...next,
+        markdown: toMarkdown(
+          next.result,
+          next.speakerNames,
+          next.participants,
+          next.expectedCount,
+          next.locked,
+          next.manuallyEdited,
+          next.editedAt
+        ),
+      },
+      options
+    );
+  }
+
+  function markManualEdit(next: SavedMeeting): SavedMeeting {
+    return {
       ...next,
-      markdown: toMarkdown(
-        next.result,
-        next.speakerNames,
-        next.participants,
-        next.expectedCount,
-        next.locked
-      ),
-    });
+      manuallyEdited: true,
+      editedAt: new Date().toISOString(),
+    };
   }
 
   function patchSummary(patch: Partial<typeof result.summary>) {
     if (locked) return;
-    commit({
-      ...saved,
-      result: {
-        ...result,
-        summary: { ...result.summary, ...patch },
-      },
-    });
+    commit(
+      markManualEdit({
+        ...saved,
+        result: {
+          ...result,
+          summary: { ...result.summary, ...patch },
+        },
+      })
+    );
   }
 
   function patchSegment(index: number, patch: { text?: string; speaker?: SpeakerId }) {
     if (locked) return;
     const segments = result.segments.map((segment, i) => (i === index ? { ...segment, ...patch } : segment));
-    commit({
-      ...saved,
-      result: withSpeakerCount({ ...result, segments }),
-    });
+    commit(
+      markManualEdit({
+        ...saved,
+        result: withSpeakerCount({ ...result, segments }),
+      })
+    );
   }
 
   function patchName(speaker: SpeakerId, name: string) {
-    if (locked) return;
-    commit({
-      ...saved,
-      speakerNames: { ...names, [speaker]: name },
-    });
+    const nextNames = { ...names, [speaker]: name };
+    commit(
+      {
+        ...saved,
+        speakerNames: nextNames,
+        result: {
+          ...result,
+          summary: applySpeakerNamesToSummary(result.summary, nextNames, names),
+        },
+      },
+      { nameSync: true }
+    );
   }
 
   async function copySummary() {
-    await navigator.clipboard.writeText(toSummaryCopyText(result, saved.createdAt));
+    await navigator.clipboard.writeText(
+      toSummaryCopyText(result, saved.createdAt, saved.manuallyEdited, saved.editedAt)
+    );
     setCopiedSummary(true);
     window.setTimeout(() => setCopiedSummary(false), 1600);
   }
 
   async function copyTranscript() {
-    await navigator.clipboard.writeText(toTranscriptCopyText(result, names, saved.createdAt));
+    await navigator.clipboard.writeText(
+      toTranscriptCopyText(result, names, saved.createdAt, saved.manuallyEdited, saved.editedAt)
+    );
     setCopiedTranscript(true);
     window.setTimeout(() => setCopiedTranscript(false), 1600);
   }
@@ -103,26 +136,15 @@ export function ProtocolDocument({
     <section className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1 space-y-1">
-          {locked ? (
-            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Užrakinta</p>
-          ) : (
-            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Taisyti</p>
-          )}
-          {locked ? (
-            <h2 className="text-xl font-medium tracking-tight text-balance">{result.summary.title}</h2>
-          ) : (
-            <Input
-              aria-label="Protokolo pavadinimas"
-              value={result.summary.title}
-              onChange={(event) => patchSummary({ title: event.target.value })}
-              className="h-auto border-0 bg-transparent px-0 text-xl font-medium tracking-tight shadow-none focus-visible:ring-0 dark:bg-transparent"
-            />
-          )}
+          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            {locked ? "Užrakinta" : "Redagavimo režimas"}
+          </p>
+          <h2 className="text-xl font-medium tracking-tight text-balance">{result.summary.title}</h2>
           <p className="text-xs text-muted-foreground">
             {saved.expectedCount > 0
               ? `Prabilo ${result.speakerCount} iš ${saved.expectedCount}`
               : `Prabilo ${result.speakerCount}`}
-            {locked ? " · keisti negalima" : " · galite taisyti raides ir priskirti vardus"}
+            {locked ? " · teksto keisti negalima" : " · tekstą galima keisti ranka"}
           </p>
           {saved.summaryInstructions ? (
             <p className="rounded-lg bg-muted/60 px-3 py-2 text-xs leading-5 text-muted-foreground">
@@ -141,23 +163,42 @@ export function ProtocolDocument({
             Kopijuoti visą pokalbį
           </Button>
           {locked ? (
-            <Button variant="outline" disabled>
-              <Lock />
-              Užrakinta
+            <Button variant="outline" onClick={onUnlock}>
+              <LockOpen />
+              Atrakinti
             </Button>
           ) : (
             <Button variant="outline" onClick={onLock}>
-              <LockOpen />
+              <Lock />
               Užrakinti
             </Button>
           )}
         </div>
       </div>
 
+      {editNotice ? (
+        <Alert>
+          <AlertTriangle />
+          <AlertTitle>Rankinis pakeitimas</AlertTitle>
+          <AlertDescription>{editNotice}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {!locked ? (
+        <Alert variant="destructive">
+          <AlertTriangle />
+          <AlertTitle>Atsargiai</AlertTitle>
+          <AlertDescription>
+            Redaguojant tekstą ranka, rezultatas bus pažymėtas kaip pakeistas, kad nebūtų klaidingai suprastas kaip
+            automatinis transkriptas.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <div className="space-y-2">
         <p className="text-sm font-medium">Vardai</p>
         <p className="text-xs text-muted-foreground">
-          Priskirkite vardą tik tiems, kurie patys prisistatė. Tinka ir pravardė (direktorius, bosas).
+          Priskirkite vardą — jis atsiras aprašyme ir transkripte. Tinka ir pravardė (direktorius, bosas).
         </p>
         <div className="grid gap-2 sm:grid-cols-2">
           {speakers.map((speaker) => (
@@ -167,7 +208,6 @@ export function ProtocolDocument({
               </Label>
               <Input
                 id={`name-${speaker}`}
-                disabled={locked}
                 placeholder="Vardas ar pravardė"
                 value={names[speaker] ?? ""}
                 onChange={(event) => patchName(speaker, event.target.value)}
@@ -185,13 +225,18 @@ export function ProtocolDocument({
         <TabsContent value="summary" className="space-y-4 pt-4">
           <div className="space-y-1.5">
             <Label htmlFor="narrative">Aprašymas</Label>
-            <Textarea
-              id="narrative"
-              disabled={locked}
-              value={result.summary.narrative}
-              onChange={(event) => patchSummary({ narrative: event.target.value })}
-              className="min-h-40 leading-7"
-            />
+            {locked ? (
+              <div className="min-h-40 rounded-md border border-border/80 bg-muted/20 px-3 py-3 text-sm leading-7 whitespace-pre-wrap">
+                {result.summary.narrative}
+              </div>
+            ) : (
+              <Textarea
+                id="narrative"
+                value={result.summary.narrative}
+                onChange={(event) => patchSummary({ narrative: event.target.value })}
+                className="min-h-40 leading-7"
+              />
+            )}
           </div>
         </TabsContent>
         <TabsContent value="transcript" className="space-y-3 pt-4">
@@ -204,32 +249,37 @@ export function ProtocolDocument({
                   <label className="sr-only" htmlFor={`speaker-${index}`}>
                     Kalbėtojas
                   </label>
-                  <select
-                    id={`speaker-${index}`}
-                    disabled={locked}
-                    value={segment.speaker}
-                    aria-label="Priskirti kitam kalbėtojui"
-                    onChange={(event) => patchSegment(index, { speaker: event.target.value as SpeakerId })}
-                    className={cn(
-                      "h-7 max-w-full rounded-md border border-input bg-background px-2 text-xs",
-                      locked && "opacity-70"
-                    )}
-                    style={{ color: tone.fg }}
-                  >
-                    {choices.map((id) => (
-                      <option key={id} value={id}>
-                        {speakerName(id, names)}
-                      </option>
-                    ))}
-                  </select>
+                  {locked ? (
+                    <span className="text-xs font-medium" style={{ color: tone.fg }}>
+                      {speakerName(segment.speaker, names)}
+                    </span>
+                  ) : (
+                    <select
+                      id={`speaker-${index}`}
+                      value={segment.speaker}
+                      aria-label="Priskirti kitam kalbėtojui"
+                      onChange={(event) => patchSegment(index, { speaker: event.target.value as SpeakerId })}
+                      className="h-7 max-w-full rounded-md border border-input bg-background px-2 text-xs"
+                      style={{ color: tone.fg }}
+                    >
+                      {choices.map((id) => (
+                        <option key={id} value={id}>
+                          {speakerName(id, names)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
-                <Textarea
-                  disabled={locked}
-                  value={segment.text}
-                  aria-label={`Replika ${index + 1}`}
-                  onChange={(event) => patchSegment(index, { text: event.target.value })}
-                  className="min-h-16 leading-6"
-                />
+                {locked ? (
+                  <p className="text-sm leading-6 whitespace-pre-wrap">{segment.text}</p>
+                ) : (
+                  <Textarea
+                    value={segment.text}
+                    aria-label={`Replika ${index + 1}`}
+                    onChange={(event) => patchSegment(index, { text: event.target.value })}
+                    className="min-h-16 leading-6"
+                  />
+                )}
               </article>
             );
           })}

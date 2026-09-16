@@ -140,7 +140,7 @@ export function MeetingStudio() {
     if (response.ok) setArchive((await response.json()) as MeetingListItem[]);
   }
 
-  function persistMeeting(next: SavedMeeting) {
+  function persistMeeting(next: SavedMeeting, options?: { nameSync?: boolean }) {
     setSaved(next);
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     const id = next.id;
@@ -152,9 +152,23 @@ export function MeetingStudio() {
           id,
           speakerNames: next.speakerNames,
           result: next.result,
+          locked: next.locked,
+          manuallyEdited: next.manuallyEdited,
+          editedAt: next.editedAt,
+          nameSync: options?.nameSync,
         }),
       }).then(() => refreshArchive());
     }, 500);
+  }
+
+  async function unlockMeeting() {
+    if (!saved || !saved.locked) return;
+    const response = await fetch("/api/meetings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: saved.id, locked: false }),
+    });
+    if (response.ok) setSaved((await response.json()) as SavedMeeting);
   }
 
   async function lockMeeting() {
@@ -561,6 +575,7 @@ export function MeetingStudio() {
                   saved={saved}
                   onUpdate={persistMeeting}
                   onLock={() => void lockMeeting()}
+                  onUnlock={() => void unlockMeeting()}
                 />
               </CardContent>
             </Card>
