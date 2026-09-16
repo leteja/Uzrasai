@@ -100,7 +100,7 @@ export function MeetingArchiveSidebar({
         aria-label="Rodyti praeitus susitikimus"
         title="Praeiti susitikimai"
         className={cn(
-          "sticky top-0 flex h-dvh w-8 shrink-0 cursor-pointer border-l border-border/80 bg-muted/40 transition hover:bg-muted/70",
+          "sticky top-0 flex h-dvh w-12 shrink-0 cursor-pointer border-l border-border bg-muted/50 transition hover:bg-muted",
           className
         )}
       />
