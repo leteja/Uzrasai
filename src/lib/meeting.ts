@@ -95,6 +95,19 @@ export function formatSpeakerCountLabel(count: number, expectedCount = 0): strin
     : `Įrašyti ${safeCount} kalbėtojai`;
 }
 
+export function normalizeMeetingTitle(title: string, maxWords = 6, maxChars = 48): string {
+  const cleaned = title.trim().replace(/\s+/g, " ");
+  if (!cleaned) return "Susitikimo užrašai";
+
+  const words = cleaned.split(" ").filter(Boolean);
+  let short = words.slice(0, maxWords).join(" ");
+  if (short.length > maxChars) {
+    short = short.slice(0, maxChars).trim();
+  }
+  short = short.replace(/[,;:–—-]+$/, "").trim();
+  return short || "Susitikimo užrašai";
+}
+
 export function listSpeakers(count: number): SpeakerId[] {
   return Array.from({ length: Math.max(1, Math.min(MAX_SPEAKERS, count)) }, (_, i) => speakerId(i + 1));
 }

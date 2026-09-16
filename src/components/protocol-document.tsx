@@ -20,6 +20,7 @@ import {
   hasCustomSpeakerName,
   listSpeakers,
   manualEditNotice,
+  normalizeMeetingTitle,
   speakerName,
   speakerTone,
   toMarkdown,
@@ -142,7 +143,9 @@ export function ProtocolDocument({
           <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
             {locked ? "Užrakinta" : "Redagavimo režimas"}
           </p>
-          <h2 className="text-xl font-medium tracking-tight text-balance">{result.summary.title}</h2>
+          <h2 className="text-xl font-medium tracking-tight text-balance">
+            {normalizeMeetingTitle(result.summary.title)}
+          </h2>
           <p className="text-xs text-muted-foreground">
             {formatSpeakerCountLabel(result.speakerCount, saved.expectedCount)}
             {locked ? " · teksto keisti negalima" : " · tekstą galima keisti ranka"}

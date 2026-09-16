@@ -33,6 +33,8 @@ import {
   type ProviderStatus,
   type SavedMeeting,
   formatClock,
+  formatSpeakerCountLabel,
+  normalizeMeetingTitle,
 } from "@/lib/meeting";
 import { cn } from "@/lib/utils";
 
@@ -532,33 +534,6 @@ export function MeetingStudio() {
             </Alert>
           ) : null}
 
-          {archive.length > 0 ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Išsaugoti susitikimai</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {archive.map((item) => (
-                  <div key={item.id} className="flex items-center gap-2 rounded-lg bg-muted/70 px-2 py-1.5">
-                    <button
-                      type="button"
-                      className="min-w-0 flex-1 text-left text-sm hover:underline"
-                      onClick={() => void openArchive(item.id)}
-                    >
-                      <span className="block truncate font-medium">{item.title}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(item.createdAt).toLocaleString("lt-LT")} · {formatClock(item.durationMs)} · {item.speakerCount} bals.
-                      </span>
-                    </button>
-                    <Button variant="ghost" size="icon-xs" onClick={() => void removeArchive(item.id)} aria-label="Ištrinti">
-                      <Trash2 />
-                    </Button>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          ) : null}
-
           {!result && !processing ? (
             <Card>
               <CardHeader>
@@ -572,12 +547,11 @@ export function MeetingStudio() {
             <Card>
               <CardHeader className="gap-4">
                 <div>
-                  <CardTitle className="font-heading text-2xl">{result.summary.title}</CardTitle>
+                  <CardTitle className="font-heading text-2xl text-balance">
+                    {normalizeMeetingTitle(result.summary.title)}
+                  </CardTitle>
                   <CardDescription>
-                    {formatClock(result.durationMs)}
-                    {saved.expectedCount > 0
-                      ? ` · prabilo ${result.speakerCount} iš ${saved.expectedCount}`
-                      : ` · prabilo ${result.speakerCount}`}
+                    {formatClock(result.durationMs)} · {formatSpeakerCountLabel(result.speakerCount, saved.expectedCount)}
                   </CardDescription>
                 </div>
 
@@ -609,6 +583,33 @@ export function MeetingStudio() {
                   onLock={() => void lockMeeting()}
                   onUnlock={() => void unlockMeeting()}
                 />
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {archive.length > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Išsaugoti susitikimai</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {archive.map((item) => (
+                  <div key={item.id} className="flex items-center gap-2 rounded-lg bg-muted/70 px-2 py-1.5">
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left text-sm hover:underline"
+                      onClick={() => void openArchive(item.id)}
+                    >
+                      <span className="block truncate font-medium">{normalizeMeetingTitle(item.title)}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(item.createdAt).toLocaleString("lt-LT")} · {formatClock(item.durationMs)} · {item.speakerCount} bals.
+                      </span>
+                    </button>
+                    <Button variant="ghost" size="icon-xs" onClick={() => void removeArchive(item.id)} aria-label="Ištrinti">
+                      <Trash2 />
+                    </Button>
+                  </div>
+                ))}
               </CardContent>
             </Card>
           ) : null}

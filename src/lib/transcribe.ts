@@ -19,6 +19,7 @@ import {
   speakerId,
   speakerName,
   formatSpeakerLine,
+  normalizeMeetingTitle,
   uniqueSpeakerIds,
 } from "@/lib/meeting";
 
@@ -60,10 +61,11 @@ SVARBU — tai SUTRUMPINTAS aprašymas, ne antras transkriptas:
 - Nerašyk, ko pokalbyje nebuvo. Nenaudok „pasakė“, „kalbėjo“ kiekvienam sakiniui — rašyk bendrą susitikimo eigą.
 - Jei žinai kalbėtojo vardą — naudok jį aprašyme vietoje „Kalbėtojas N“.
 - Vardus naudok tik jei jie aiškiai nurodyti (prisistatymas transkripte arba žinomi vardų sąraše). Negalvok vardų.
+- title laukas: tik 2–6 žodžiai, tema arba darbotvarkės punktas — ne sakinys, ne citata iš transkripto.
 
 Grąžink tik JSON:
 {
-  "title": "trumpas susitikimo pavadinimas",
+  "title": "2–6 žodžių tema (ne sakinys, ne transkripto fragmentas)",
   "narrative": "3–8 pastraipos. Sutrumpintas, perfrazuotas viso pokalbio aprašymas — ne transkripto kopija."
 }`;
 
@@ -97,17 +99,15 @@ function fallbackSummary(segments: MeetingSegment[], names: Record<string, strin
       .map((segment) => segment.text.trim())
       .join(" ");
     if (!text) continue;
-    const label = speakerName(speaker, names);
     const sentence = text.split(/(?<=[.!?…])\s+/).slice(0, 2).join(" ").trim();
     snippets.push(formatSpeakerLine(speaker, sentence, names));
   }
 
   const narrative = snippets.join("\n\n").trim() || "Nepavyko parengti aprašymo.";
-  const titleSource = snippets[0] || segments[0]?.text.trim() || "Susitikimo užrašai";
-  const title = titleSource.length > 60 ? `${titleSource.slice(0, 57)}…` : titleSource;
+  const titleSource = snippets[0]?.split(/\s+/).slice(0, 5).join(" ") || "Susitikimo užrašai";
 
   return {
-    title: title || "Susitikimo užrašai",
+    title: normalizeMeetingTitle(titleSource),
     narrative,
     decisions: [],
     nextSteps: [],
@@ -120,14 +120,14 @@ function parseSummary(raw: string): MeetingSummary {
     const jsonEnd = raw.lastIndexOf("}");
     const parsed = JSON.parse(jsonStart >= 0 ? raw.slice(jsonStart, jsonEnd + 1) : raw) as Partial<MeetingSummary>;
     return {
-      title: parsed.title?.trim() || "Susitikimo užrašai",
+      title: normalizeMeetingTitle(parsed.title?.trim() || "Susitikimo užrašai"),
       narrative: parsed.narrative?.trim() || "",
       decisions: Array.isArray(parsed.decisions) ? parsed.decisions.map(String).filter(Boolean) : [],
       nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps.map(String).filter(Boolean) : [],
     };
   } catch {
     return {
-      title: "Susitikimo užrašai",
+      title: normalizeMeetingTitle(raw.trim().split(/\s+/).slice(0, 6).join(" ") || "Susitikimo užrašai"),
       narrative: raw.trim(),
       decisions: [],
       nextSteps: [],
@@ -559,7 +559,7 @@ Grąžink tik JSON:
   return {
     segments,
     summary: {
-      title: parsed.summary?.title?.trim() || "Susitikimo užrašai",
+      title: normalizeMeetingTitle(parsed.summary?.title?.trim() || "Susitikimo užrašai"),
       narrative: parsed.summary?.narrative?.trim() || "",
       decisions: [],
       nextSteps: [],
