@@ -108,6 +108,7 @@ export function MeetingStudio() {
   const [archiveQuery, setArchiveQuery] = useState("");
   const autoStopped = useRef(false);
   const saveTimer = useRef<number | null>(null);
+  const saveGeneration = useRef(0);
   const stopNowRef = useRef<(() => Promise<void>) | null>(null);
 
   const result = saved?.result ?? null;
@@ -168,7 +169,10 @@ export function MeetingStudio() {
     cancelPendingSave();
     const id = next.id;
     const nameSync = options?.nameSync === true;
+    const generation = ++saveGeneration.current;
     saveTimer.current = window.setTimeout(async () => {
+      if (generation !== saveGeneration.current) return;
+
       const body: Record<string, unknown> = { id };
       if (nameSync && next.locked) {
         body.speakerNames = next.speakerNames;
@@ -185,12 +189,16 @@ export function MeetingStudio() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+      if (generation !== saveGeneration.current) return;
       if (!response.ok) {
         const payload = (await response.json().catch(() => ({}))) as { error?: string };
         setError(payload.error || "Nepavyko išsaugoti pakeitimų.");
         return;
       }
-      setSaved((await response.json()) as SavedMeeting);
+
+      if (nameSync && next.locked) {
+        setSaved((await response.json()) as SavedMeeting);
+      }
       await refreshArchive();
     }, 500);
   }
@@ -209,24 +217,36 @@ export function MeetingStudio() {
       setError(payload.error || "Nepavyko atrakinti protokolo.");
       return;
     }
-    setSaved((await response.json()) as SavedMeeting);
+    setSaved((current) => (current ? { ...current, locked: false, lockedAt: undefined } : current));
   }
 
-  async function lockMeeting() {
-    if (!saved || saved.locked) return;
+  async function lockMeeting(snapshot?: SavedMeeting) {
+    const current = snapshot ?? saved;
+    if (!current || current.locked) return;
     cancelPendingSave();
     setError(null);
+    if (snapshot) setSaved(snapshot);
     const response = await fetch("/api/meetings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: saved.id, locked: true }),
+      body: JSON.stringify({
+        id: current.id,
+        locked: true,
+        speakerNames: current.speakerNames,
+        result: current.result,
+        manuallyEdited: current.manuallyEdited,
+        editedAt: current.editedAt,
+      }),
     });
     if (!response.ok) {
       const payload = (await response.json().catch(() => ({}))) as { error?: string };
       setError(payload.error || "Nepavyko užrakinti protokolo.");
       return;
     }
-    setSaved((await response.json()) as SavedMeeting);
+    const payload = (await response.json()) as SavedMeeting;
+    setSaved((current) =>
+      current ? { ...current, locked: true, lockedAt: payload.lockedAt ?? new Date().toISOString() } : payload
+    );
   }
 
   async function processAudio(file: Blob, mimeType: string, durationMs: number, liveCaption?: string) {
@@ -658,7 +678,7 @@ export function MeetingStudio() {
                   <ProtocolDocument
                     saved={saved}
                     onUpdate={persistMeeting}
-                    onLock={() => void lockMeeting()}
+                    onLock={(snapshot) => void lockMeeting(snapshot)}
                     onUnlock={() => void unlockMeeting()}
                   />
                   <div className="flex flex-col items-stretch gap-3 border-t border-border/60 pt-5 sm:flex-row sm:items-center sm:justify-between">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Check, Copy, Lock, LockOpen } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -40,17 +40,40 @@ export function ProtocolDocument({
 }: {
   saved: SavedMeeting;
   onUpdate: (next: SavedMeeting, options?: { nameSync?: boolean }) => void;
-  onLock: () => void;
+  onLock: (snapshot?: SavedMeeting) => void;
   onUnlock: () => void;
 }) {
   const [copiedSummary, setCopiedSummary] = useState(false);
   const [copiedTranscript, setCopiedTranscript] = useState(false);
+  const [draftNarrative, setDraftNarrative] = useState(saved.result.summary.narrative);
+  const [draftSegments, setDraftSegments] = useState(saved.result.segments);
+  const summaryFlushTimer = useRef<number | null>(null);
+  const segmentFlushTimer = useRef<number | null>(null);
   const locked = saved.locked;
   const names = saved.speakerNames;
   const speakers = expectedSpeakerIds(saved.result.segments, saved.expectedCount);
   const choices = speakerChoices(saved);
   const result = saved.result;
   const editNotice = manualEditNotice(saved.manuallyEdited, saved.editedAt);
+
+  useEffect(() => {
+    setDraftNarrative(saved.result.summary.narrative);
+    setDraftSegments(saved.result.segments);
+  }, [saved.id]);
+
+  useEffect(() => {
+    if (locked) {
+      setDraftNarrative(result.summary.narrative);
+      setDraftSegments(result.segments);
+    }
+  }, [locked, result.summary.narrative, result.segments]);
+
+  useEffect(() => {
+    return () => {
+      if (summaryFlushTimer.current) window.clearTimeout(summaryFlushTimer.current);
+      if (segmentFlushTimer.current) window.clearTimeout(segmentFlushTimer.current);
+    };
+  }, []);
 
   function commit(next: SavedMeeting, options?: { nameSync?: boolean }) {
     onUpdate(
@@ -91,9 +114,21 @@ export function ProtocolDocument({
     );
   }
 
+  function flushSummaryDraft(narrative: string) {
+    if (locked || narrative === result.summary.narrative) return;
+    patchSummary({ narrative });
+  }
+
+  function scheduleSummaryFlush(narrative: string) {
+    if (summaryFlushTimer.current) window.clearTimeout(summaryFlushTimer.current);
+    summaryFlushTimer.current = window.setTimeout(() => flushSummaryDraft(narrative), 450);
+  }
+
   function patchSegment(index: number, patch: { text?: string; speaker?: SpeakerId }) {
     if (locked) return;
     const segments = result.segments.map((segment, i) => (i === index ? { ...segment, ...patch } : segment));
+    const nextSegments = draftSegments.map((segment, i) => (i === index ? { ...segment, ...patch } : segment));
+    setDraftSegments(nextSegments);
     commit(
       markManualEdit({
         ...saved,
@@ -102,8 +137,43 @@ export function ProtocolDocument({
     );
   }
 
+  function flushSegmentDrafts(segments: typeof draftSegments) {
+    if (locked) return;
+    const changed = segments.some((segment, index) => segment.text !== result.segments[index]?.text);
+    if (!changed) return;
+    commit(
+      markManualEdit({
+        ...saved,
+        result: withSpeakerCount({ ...result, segments }),
+      })
+    );
+  }
+
+  function scheduleSegmentFlush(segments: typeof draftSegments) {
+    if (segmentFlushTimer.current) window.clearTimeout(segmentFlushTimer.current);
+    segmentFlushTimer.current = window.setTimeout(() => flushSegmentDrafts(segments), 450);
+  }
+
+  function updateSegmentText(index: number, text: string) {
+    if (locked) return;
+    const nextSegments = draftSegments.map((segment, i) => (i === index ? { ...segment, text } : segment));
+    setDraftSegments(nextSegments);
+    scheduleSegmentFlush(nextSegments);
+  }
+
+  function patchSegmentSpeaker(index: number, speaker: SpeakerId) {
+    patchSegment(index, { speaker });
+  }
+
   function patchName(speaker: SpeakerId, name: string) {
+    if (summaryFlushTimer.current) {
+      window.clearTimeout(summaryFlushTimer.current);
+      summaryFlushTimer.current = null;
+    }
+    flushSummaryDraft(draftNarrative);
+
     const nextNames = { ...names, [speaker]: name };
+    const summaryBase = { ...result.summary, narrative: draftNarrative };
     commit(
       {
         ...saved,
@@ -111,7 +181,7 @@ export function ProtocolDocument({
         result: {
           ...result,
           summary: finalizeSummary(
-            applySpeakerNamesToSummary(result.summary, nextNames, names),
+            applySpeakerNamesToSummary(summaryBase, nextNames, names),
             result.segments,
             nextNames
           ),
@@ -119,6 +189,45 @@ export function ProtocolDocument({
       },
       { nameSync: true }
     );
+    setDraftNarrative(
+      finalizeSummary(
+        applySpeakerNamesToSummary(summaryBase, nextNames, names),
+        result.segments,
+        nextNames
+      ).narrative
+    );
+  }
+
+  function handleLock() {
+    if (summaryFlushTimer.current) {
+      window.clearTimeout(summaryFlushTimer.current);
+      summaryFlushTimer.current = null;
+    }
+    if (segmentFlushTimer.current) {
+      window.clearTimeout(segmentFlushTimer.current);
+      segmentFlushTimer.current = null;
+    }
+
+    const hasSummaryChange = draftNarrative !== result.summary.narrative;
+    const hasSegmentChange = draftSegments.some(
+      (segment, index) => segment.text !== result.segments[index]?.text
+    );
+    const snapshot =
+      hasSummaryChange || hasSegmentChange
+        ? markManualEdit({
+            ...saved,
+            result: withSpeakerCount({
+              ...result,
+              segments: draftSegments,
+              summary: { ...result.summary, narrative: draftNarrative },
+            }),
+          })
+        : saved;
+
+    if (snapshot !== saved) {
+      commit(snapshot);
+    }
+    onLock(snapshot);
   }
 
   async function copySummary() {
@@ -166,7 +275,7 @@ export function ProtocolDocument({
               Atrakinti
             </Button>
           ) : (
-            <Button variant="outline" onClick={onLock}>
+            <Button variant="outline" onClick={handleLock}>
               <Lock />
               Užrakinti
             </Button>
@@ -225,17 +334,23 @@ export function ProtocolDocument({
             ) : (
               <Textarea
                 id="narrative"
-                value={result.summary.narrative}
-                onChange={(event) => patchSummary({ narrative: event.target.value })}
+                value={draftNarrative}
+                onChange={(event) => {
+                  const narrative = event.target.value;
+                  setDraftNarrative(narrative);
+                  scheduleSummaryFlush(narrative);
+                }}
+                onBlur={() => flushSummaryDraft(draftNarrative)}
                 className="min-h-40 leading-7"
               />
             )}
           </div>
         </TabsContent>
         <TabsContent value="transcript" className="space-y-3 pt-4">
-          {result.segments.map((segment, index) => {
+          {(locked ? result.segments : draftSegments).map((segment, index) => {
             const tone = speakerTone(segment.speaker);
             const customName = hasCustomSpeakerName(segment.speaker, names);
+            const segmentText = locked ? segment.text : (draftSegments[index]?.text ?? segment.text);
             return (
               <article key={`${segment.startMs}-${index}`} className="rounded-md border border-border/80 bg-muted/20 p-3">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -254,7 +369,7 @@ export function ProtocolDocument({
                           id={`speaker-${index}`}
                           value={segment.speaker}
                           aria-label="Priskirti kitam kalbėtojui"
-                          onChange={(event) => patchSegment(index, { speaker: event.target.value as SpeakerId })}
+                          onChange={(event) => patchSegmentSpeaker(index, event.target.value as SpeakerId)}
                           className="h-7 max-w-full rounded-md border border-input bg-background px-2 text-xs"
                           style={{ color: tone.fg }}
                         >
@@ -275,10 +390,10 @@ export function ProtocolDocument({
                         {speakerName(segment.speaker, names)}
                       </span>
                       {" - "}
-                      {segment.text}
+                      {segmentText}
                     </p>
                   ) : (
-                    <p className="text-sm leading-6 whitespace-pre-wrap">{segment.text}</p>
+                    <p className="text-sm leading-6 whitespace-pre-wrap">{segmentText}</p>
                   )
                 ) : customName ? (
                   <div className="space-y-2">
@@ -286,17 +401,31 @@ export function ProtocolDocument({
                       {speakerName(segment.speaker, names)} -
                     </p>
                     <Textarea
-                      value={segment.text}
+                      value={segmentText}
                       aria-label={`Replika ${index + 1}`}
-                      onChange={(event) => patchSegment(index, { text: event.target.value })}
+                      onChange={(event) => updateSegmentText(index, event.target.value)}
+                      onBlur={(event) => {
+                        const nextSegments = draftSegments.map((segment, i) =>
+                          i === index ? { ...segment, text: event.target.value } : segment
+                        );
+                        setDraftSegments(nextSegments);
+                        flushSegmentDrafts(nextSegments);
+                      }}
                       className="min-h-16 leading-6"
                     />
                   </div>
                 ) : (
                   <Textarea
-                    value={segment.text}
+                    value={segmentText}
                     aria-label={`Replika ${index + 1}`}
-                    onChange={(event) => patchSegment(index, { text: event.target.value })}
+                    onChange={(event) => updateSegmentText(index, event.target.value)}
+                    onBlur={(event) => {
+                      const nextSegments = draftSegments.map((segment, i) =>
+                        i === index ? { ...segment, text: event.target.value } : segment
+                      );
+                      setDraftSegments(nextSegments);
+                      flushSegmentDrafts(nextSegments);
+                    }}
                     className="min-h-16 leading-6"
                   />
                 )}
