@@ -25,7 +25,6 @@ import { Waveform } from "@/components/waveform";
 import { SetupGuide } from "@/components/setup-guide";
 import { ProtocolDocument } from "@/components/protocol-document";
 import {
-  MeetingArchivePanel,
   MeetingArchiveSidebar,
   filterMeetings,
 } from "@/components/meeting-archive-sidebar";
@@ -405,72 +404,47 @@ export function MeetingStudio() {
   );
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-2 px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="font-heading text-lg leading-none tracking-tight">Užrašai</p>
-              <p className="text-[11px] text-muted-foreground">Start · Stop · Užrašai</p>
+    <div className="flex min-h-dvh w-full">
+      <MeetingArchiveSidebar
+        className="sticky top-0 flex h-dvh shrink-0"
+        items={filteredArchive}
+        totalCount={archive.length}
+        open={archiveOpen}
+        onOpenChange={setArchiveOpen}
+        activeId={saved?.id}
+        onSelect={(id) => void openArchive(id)}
+        onRemove={(id) => void removeArchive(id)}
+        emptyMessage={archiveEmptyMessage}
+      />
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="flex flex-col gap-2 px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="font-heading text-lg leading-none tracking-tight">Užrašai</p>
+                <p className="text-[11px] text-muted-foreground">Start · Stop · Užrašai</p>
+              </div>
+              {!status?.ready ? (
+                <Badge variant="outline" className="max-w-[12rem] text-left text-[11px] leading-4 font-normal whitespace-normal">
+                  {readyLabel}
+                </Badge>
+              ) : null}
             </div>
-            {!status?.ready ? (
-              <Badge variant="outline" className="max-w-[12rem] text-left text-[11px] leading-4 font-normal whitespace-normal">
-                {readyLabel}
-              </Badge>
-            ) : null}
+            <div className="relative">
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={archiveQuery}
+                onChange={(event) => setArchiveQuery(event.target.value)}
+                placeholder="Ieškoti pagal datą ar raktinius žodžius iš pavadinimo…"
+                className="pl-9"
+                aria-label="Ieškoti susitikimų"
+              />
+            </div>
           </div>
-          <div className="relative">
-            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={archiveQuery}
-              onChange={(event) => setArchiveQuery(event.target.value)}
-              placeholder="Ieškoti pagal datą ar raktinius žodžius iš pavadinimo…"
-              className="pl-9"
-              aria-label="Ieškoti susitikimų"
-            />
-          </div>
-          {archive.length > 0 ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="w-fit lg:hidden"
-              onClick={() => setArchiveOpen((open) => !open)}
-            >
-              {archiveOpen ? "Slėpti susitikimus" : "Praeiti susitikimai"} ({filteredArchive.length})
-            </Button>
-          ) : null}
-        </div>
-      </header>
+        </header>
 
-      <div className="mx-auto flex w-full max-w-7xl flex-1 gap-0 px-4 py-4">
-        {archive.length > 0 ? (
-          <MeetingArchiveSidebar
-            className="hidden lg:flex"
-            items={filteredArchive}
-            totalCount={archive.length}
-            open={archiveOpen}
-            onOpenChange={setArchiveOpen}
-            activeId={saved?.id}
-            onSelect={(id) => void openArchive(id)}
-            onRemove={(id) => void removeArchive(id)}
-            emptyMessage={archiveEmptyMessage}
-          />
-        ) : null}
-
-        <div className="min-w-0 flex-1 space-y-4">
-          {archiveOpen && archive.length > 0 ? (
-            <MeetingArchivePanel
-              className="lg:hidden"
-              items={filteredArchive}
-              totalCount={archive.length}
-              activeId={saved?.id}
-              onSelect={(id) => void openArchive(id)}
-              onRemove={(id) => void removeArchive(id)}
-              emptyMessage={archiveEmptyMessage}
-            />
-          ) : null}
-
+        <main className="mx-auto w-full max-w-3xl flex-1 space-y-4 px-4 py-4">
           {recordCard}
 
           <details className="group rounded-xl border bg-card open:shadow-sm">
@@ -641,7 +615,7 @@ export function MeetingStudio() {
               </div>
             </details>
           ) : null}
-        </div>
+        </main>
       </div>
     </div>
   );

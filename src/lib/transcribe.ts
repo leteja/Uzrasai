@@ -50,9 +50,13 @@ async function prepareGeminiAudio(
   return toMp3(buffer, mimeType);
 }
 
-const ANGLICISM_HINT = `Pokalbis daugiausia lietuvių kalba, bet pasitaiko angliškų žodžių (anglicizmų): meeting, call, deadline, feedback, target, budget, team, launch, marketing, email, update, status, online, offline, ok, sorry.
-Transkribuok angliškus žodžius teisingai angliškai — neverčiant į lietuviškus atitikmenis (pvz. ne „mitingas“, o „meeting“).
+const ANGLICISM_HINT = `Pokalbis daugiausia lietuvių kalba, bet dažnai pasitaiko pavieniai angliški žodžiai ir anglicizmai.
+Juos transkribuok TEISINGAI angliškai (lotyniškais rašmenimis) — neverčiant į lietuviškus atitikmenis.
+Pavyzdžiai: tomorrow (ne „tomoro“ / „tomorrow“ klaidingai), today, yesterday, weekend, meeting, call, deadline, feedback, okay, ok, sorry, please, thanks, yes, no, update, email, team, target, budget, launch, online, offline, status, marketing, design, product, sprint, backlog, deadline, follow-up, check-in.
 Aprašyme angliškus terminus palik kaip transkripte, neversk be reikalo.`;
+
+const WHISPER_ANGLICISM_PROMPT =
+  "Lietuvių kalba su angliškais žodžiais: tomorrow, today, yesterday, weekend, meeting, call, deadline, feedback, okay, sorry, please, thanks, update, email, team, target, budget, launch, marketing, status, online, offline.";
 
 const SUMMARY_PROMPT = `Tu esi susitikimų sekretorius. Aprašymą rašai lietuvių kalba.
 Gavai pažodžiui transkribuotą pokalbį su kalbėtojų žymėmis. Pokalbyje gali būti iki ${MAX_SPEAKERS} žmonių.
@@ -343,6 +347,32 @@ type GeminiRestResponse = {
   }>;
 };
 
+async function polishAnglicismsInSegments(ai: GoogleGenAI, segments: MeetingSegment[]): Promise<MeetingSegment[]> {
+  if (segments.length === 0) return segments;
+
+  try {
+    const text = await geminiJsonText(
+      ai,
+      `Patikrink transkripciją. Pokalbis lietuviškai, bet su angliškais žodžiais.
+${ANGLICISM_HINT}
+
+Grąžink JSON {"fixes":[{"index":0,"text":"..."}]} tik segmentams, kur angliškas žodis neteisingai užrašytas ar lietuvintas. Jei viskas gerai — {"fixes":[]}.
+
+TRANSKRIPTAS:
+${segments.map((segment, index) => `[${index}] ${segment.text}`).join("\n")}`
+    );
+    const parsed = JSON.parse(text) as { fixes?: Array<{ index?: number; text?: string }> };
+    const next = segments.map((segment) => ({ ...segment }));
+    for (const fix of parsed.fixes ?? []) {
+      if (typeof fix.index !== "number" || !fix.text?.trim() || !next[fix.index]) continue;
+      next[fix.index] = { ...next[fix.index], text: fix.text.trim() };
+    }
+    return next;
+  } catch {
+    return segments;
+  }
+}
+
 async function transcribeWithGeminiRest(
   apiKey: string,
   inlineData: { mimeType: string; data: string }
@@ -356,7 +386,6 @@ async function transcribeWithGeminiRest(
         contents: [{ parts: [{ inlineData }] }],
         generationConfig: {
           audioTranscriptionConfig: {
-            languageCodes: ["lt-LT", "en-US"],
             diarization: true,
             wordTimestamp: true,
           },
@@ -562,8 +591,10 @@ Grąžink tik JSON:
     throw new Error("Gemini negrąžino transkripcijos.");
   }
 
+  const polished = await polishAnglicismsInSegments(ai, segments);
+
   return {
-    segments,
+    segments: polished,
     summary: {
       title: normalizeMeetingTitle(parsed.summary?.title?.trim() || "Susitikimo užrašai"),
       narrative: parsed.summary?.narrative?.trim() || "",
@@ -573,7 +604,7 @@ Grąžink tik JSON:
     provider: "gemini",
     language: "lt",
     durationMs: input.durationMs,
-    speakerCount: uniqueSpeakers(segments),
+    speakerCount: uniqueSpeakers(polished),
     note: "Naudotas Gemini Flash garso supratimas (atsarginis kelias ilgam įrašui).",
   };
 }
@@ -601,7 +632,8 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
   }
 
   if (transcribedChunks.length > 0) {
-    const segments = await unifyChunkSpeakers(ai, transcribedChunks);
+    let segments = await unifyChunkSpeakers(ai, transcribedChunks);
+    segments = await polishAnglicismsInSegments(ai, segments);
     const speakerNames = await inferSpeakerNames(segments);
     let summary: MeetingSummary;
     try {
@@ -649,9 +681,7 @@ async function processWithGroq(input: AudioInput): Promise<MeetingResult> {
   const transcription = await groq.audio.transcriptions.create({
     file,
     model: "whisper-large-v3",
-    language: "lt",
-    prompt:
-      "Lietuvių kalba su anglicizmais: meeting, deadline, feedback, budget, team, target, launch, marketing, email, update, status.",
+    prompt: WHISPER_ANGLICISM_PROMPT,
     response_format: "verbose_json",
     temperature: 0,
   });

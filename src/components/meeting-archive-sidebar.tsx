@@ -118,7 +118,9 @@ export function MeetingArchiveSidebar({
       <div className="flex items-center justify-between border-b px-3 py-2.5">
         <div>
           <p className="text-sm font-medium">Praeiti susitikimai</p>
-          <p className="text-[11px] text-muted-foreground">{items.length} iš {totalCount}</p>
+          <p className="text-[11px] text-muted-foreground">
+            {items.length} iš {totalCount} · filtras viršuje
+          </p>
         </div>
         <Button type="button" variant="ghost" size="icon-xs" onClick={() => onOpenChange(false)} aria-label="Suskleisti">
           <ChevronLeft />
