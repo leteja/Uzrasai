@@ -140,45 +140,77 @@ export function MeetingStudio() {
     if (response.ok) setArchive((await response.json()) as MeetingListItem[]);
   }
 
+  function cancelPendingSave() {
+    if (saveTimer.current) {
+      window.clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+  }
+
   function persistMeeting(next: SavedMeeting, options?: { nameSync?: boolean }) {
     setSaved(next);
-    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    cancelPendingSave();
     const id = next.id;
-    saveTimer.current = window.setTimeout(() => {
-      void fetch("/api/meetings", {
+    const nameSync = options?.nameSync === true;
+    saveTimer.current = window.setTimeout(async () => {
+      const body: Record<string, unknown> = { id };
+      if (nameSync && next.locked) {
+        body.speakerNames = next.speakerNames;
+        body.nameSync = true;
+      } else {
+        body.speakerNames = next.speakerNames;
+        body.result = next.result;
+        body.manuallyEdited = next.manuallyEdited;
+        body.editedAt = next.editedAt;
+      }
+
+      const response = await fetch("/api/meetings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id,
-          speakerNames: next.speakerNames,
-          result: next.result,
-          locked: next.locked,
-          manuallyEdited: next.manuallyEdited,
-          editedAt: next.editedAt,
-          nameSync: options?.nameSync,
-        }),
-      }).then(() => refreshArchive());
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        setError(payload.error || "Nepavyko išsaugoti pakeitimų.");
+        return;
+      }
+      setSaved((await response.json()) as SavedMeeting);
+      await refreshArchive();
     }, 500);
   }
 
   async function unlockMeeting() {
     if (!saved || !saved.locked) return;
+    cancelPendingSave();
+    setError(null);
     const response = await fetch("/api/meetings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: saved.id, locked: false }),
     });
-    if (response.ok) setSaved((await response.json()) as SavedMeeting);
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      setError(payload.error || "Nepavyko atrakinti protokolo.");
+      return;
+    }
+    setSaved((await response.json()) as SavedMeeting);
   }
 
   async function lockMeeting() {
     if (!saved || saved.locked) return;
+    cancelPendingSave();
+    setError(null);
     const response = await fetch("/api/meetings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: saved.id, locked: true }),
     });
-    if (response.ok) setSaved((await response.json()) as SavedMeeting);
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      setError(payload.error || "Nepavyko užrakinti protokolo.");
+      return;
+    }
+    setSaved((await response.json()) as SavedMeeting);
   }
 
   async function processAudio(file: Blob, mimeType: string, durationMs: number, liveCaption?: string) {

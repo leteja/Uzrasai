@@ -14,6 +14,7 @@ import {
   type SpeakerId,
   applySpeakerNamesToSummary,
   defaultSpeakerLabel,
+  formatSpeakerCountLabel,
   formatTimestamp,
   listSpeakers,
   manualEditNotice,
@@ -141,9 +142,7 @@ export function ProtocolDocument({
           </p>
           <h2 className="text-xl font-medium tracking-tight text-balance">{result.summary.title}</h2>
           <p className="text-xs text-muted-foreground">
-            {saved.expectedCount > 0
-              ? `Prabilo ${result.speakerCount} iš ${saved.expectedCount}`
-              : `Prabilo ${result.speakerCount}`}
+            {formatSpeakerCountLabel(result.speakerCount, saved.expectedCount)}
             {locked ? " · teksto keisti negalima" : " · tekstą galima keisti ranka"}
           </p>
           {saved.summaryInstructions ? (
@@ -198,7 +197,7 @@ export function ProtocolDocument({
       <div className="space-y-2">
         <p className="text-sm font-medium">Vardai</p>
         <p className="text-xs text-muted-foreground">
-          Priskirkite vardą — jis atsiras aprašyme ir transkripte. Tinka ir pravardė (direktorius, bosas).
+          Priskirkite vardą — jis atsiras aprašyme ir transkripte. Vardus galima keisti ir kai protokolas užrakintas.
         </p>
         <div className="grid gap-2 sm:grid-cols-2">
           {speakers.map((speaker) => (

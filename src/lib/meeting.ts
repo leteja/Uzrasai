@@ -85,6 +85,16 @@ export function defaultSpeakerLabel(id: SpeakerId | string): string {
   return `Kalbėtojas ${speakerNumber(id)}`;
 }
 
+export function formatSpeakerCountLabel(count: number, expectedCount = 0): string {
+  const safeCount = Math.max(1, count);
+  if (safeCount === 1) {
+    return expectedCount > 0 ? `Įrašytas 1 kalbėtojas iš ${expectedCount}` : "Įrašytas 1 kalbėtojas";
+  }
+  return expectedCount > 0
+    ? `Įrašyti ${safeCount} kalbėtojai iš ${expectedCount}`
+    : `Įrašyti ${safeCount} kalbėtojai`;
+}
+
 export function listSpeakers(count: number): SpeakerId[] {
   return Array.from({ length: Math.max(1, Math.min(MAX_SPEAKERS, count)) }, (_, i) => speakerId(i + 1));
 }
@@ -251,9 +261,7 @@ export function toMarkdown(
   const notice = manualEditNotice(manuallyEdited, editedAt);
   if (notice) lines.push(notice);
 
-  if (expectedCount > 0) {
-    lines.push(`Prabilo ${result.speakerCount} iš ${expectedCount}.`);
-  }
+  lines.push(`${formatSpeakerCountLabel(result.speakerCount, expectedCount)}.`);
 
   lines.push("", "## Susitikimo aprašymas", "", result.summary.narrative, "", "## Visas pokalbis pagal kalbėtojus", "");
   for (const segment of result.segments) {

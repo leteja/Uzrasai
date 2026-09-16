@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { deleteMeeting, getMeeting, listMeetings, saveMeeting } from "@/lib/store";
-import { toMarkdown, withSpeakerCount, type MeetingResult, type SavedMeeting } from "@/lib/meeting";
+import {
+  applySpeakerNamesToSummary,
+  toMarkdown,
+  withSpeakerCount,
+  type MeetingResult,
+  type SavedMeeting,
+} from "@/lib/meeting";
 
 export const runtime = "nodejs";
 
@@ -72,10 +78,16 @@ export async function PUT(request: Request) {
   const locking = !existing.locked && body.locked === true;
   const nextLocked = unlocking ? false : locking ? true : existing.locked;
   const nameSync = body.nameSync === true;
+  const namesOnlyWhileLocked =
+    existing.locked &&
+    !unlocking &&
+    body.speakerNames !== undefined &&
+    body.result === undefined &&
+    body.participants === undefined;
 
-  if (existing.locked && !unlocking && !nameSync) {
+  if (existing.locked && !unlocking && !nameSync && !namesOnlyWhileLocked) {
     const wantsContentChange =
-      body.result !== undefined || body.speakerNames !== undefined || body.participants !== undefined;
+      body.result !== undefined || body.participants !== undefined || body.speakerNames !== undefined;
     if (wantsContentChange) {
       return NextResponse.json(
         { error: "Protokolas užrakintas. Norėdami keisti tekstą, pirmiausia atrakinkite." },
@@ -86,7 +98,19 @@ export async function PUT(request: Request) {
 
   const speakerNames = body.speakerNames ?? existing.speakerNames;
   const participants = body.participants ?? existing.participants;
-  const result = body.result ? withSpeakerCount(body.result) : existing.result;
+  let result = existing.result;
+  if (body.result && !existing.locked) {
+    result = withSpeakerCount(body.result);
+  } else if (body.result && unlocking) {
+    result = withSpeakerCount(body.result);
+  } else if ((nameSync || namesOnlyWhileLocked) && body.speakerNames) {
+    result = {
+      ...existing.result,
+      summary: applySpeakerNamesToSummary(existing.result.summary, speakerNames, existing.speakerNames),
+    };
+  } else if (body.result && existing.locked && nameSync) {
+    result = withSpeakerCount(body.result);
+  }
   const manuallyEdited =
     body.manuallyEdited !== undefined ? Boolean(body.manuallyEdited) : Boolean(existing.manuallyEdited);
   const editedAt = body.editedAt ?? existing.editedAt;

@@ -51,18 +51,19 @@ async function prepareGeminiAudio(
 const SUMMARY_PROMPT = `Tu esi susitikimų sekretorius. Dirbi tik lietuvių kalba.
 Gavai pažodžiui transkribuotą pokalbį su kalbėtojų žymėmis. Pokalbyje gali būti iki ${MAX_SPEAKERS} žmonių.
 
-SVARBU:
-- Nekartok transkripto pažodžiui ar beveik pažodžiui. Parašyk savo žodžiais, sutrumpintai ir struktūruotai.
+SVARBU — tai SUTRUMPINTAS aprašymas, ne antras transkriptas:
+- Tikslas: aprašymas turi būti ~20–35% transkripto žodžių kiekio. Jei per ilgas — per daug kartoji.
+- Draudžiama cituoti ar kartoti tas pačias frazes, sakinius ar jų eilę kaip transkripte. Viską perfrazuok savo žodžiais.
 - Rašyk 3–8 pastraipomis (ne punktais, ne dialogo forma), nebent naudotojo instrukcijos nurodo kitaip.
-- Sujunk pasikartojimus, bet nepraleisk esminių faktų, skaičių, datų ir sprendimų.
-- Nerašyk, ko pokalbyje nebuvo.
+- Sujunk pasikartojimus, sugrupuok temas, bet nepraleisk esminių faktų, skaičių, datų ir sprendimų.
+- Nerašyk, ko pokalbyje nebuvo. Nenaudok „pasakė“, „kalbėjo“ kiekvienam sakiniui — rašyk bendrą susitikimo eigą.
 - Jei žinai kalbėtojo vardą — naudok jį aprašyme vietoje „Kalbėtojas N“.
 - Vardus naudok tik jei jie aiškiai nurodyti (prisistatymas transkripte arba žinomi vardų sąraše). Negalvok vardų.
 
 Grąžink tik JSON:
 {
   "title": "trumpas susitikimo pavadinimas",
-  "narrative": "3–8 pastraipos. Pilnas, bet glaustas viso pokalbio aprašymas: kas kalbėjo, ką pasakė, kokie argumentai, skaičiai, datos, sutartys."
+  "narrative": "3–8 pastraipos. Sutrumpintas, perfrazuotas viso pokalbio aprašymas — ne transkripto kopija."
 }`;
 
 type AudioInput = {
@@ -521,7 +522,7 @@ async function processWithGeminiFlash(
     text: `Transkribuok šį lietuvišką susitikimo įrašą (gali trukti iki valandos, keli žmonės kambaryje).
 Atskirk balsus SPEAKER_1, SPEAKER_2, SPEAKER_3... iki SPEAKER_${MAX_SPEAKERS} pagal tai, kas kalba — ne pagal sakinių eilę, o pagal balsą.
 Jei girdėti tik vienas balsas, visus segmentus žymėk SPEAKER_1.
-Tada parašyk viso pokalbio aprašymą lietuviškai: sutrumpink, bet aprašyk viską, kas buvo pasakyta.
+Tada parašyk viso pokalbio SUTRUMPINTĄ aprašymą lietuviškai: perfrazuok, ne cituok. Aprašymas turi būti ~20–35% transkripto ilgio.
 ${summaryInstructionsHint(input.summaryInstructions)}${attendeesHint(input.expectedCount)}
 ${hint}
 
@@ -530,7 +531,7 @@ Grąžink tik JSON:
   "segments": [{"speaker":"SPEAKER_1","text":"...","startMs":0,"endMs":4000}],
   "summary": {
     "title": "...",
-    "narrative": "3–8 pastraipos"
+    "narrative": "3–8 sutrumpintos pastraipos — perfrazuotas aprašymas, ne transkripto kopija"
   }
 }`,
     audio: { mimeType: inlineData.mimeType, data: inlineData.data },
