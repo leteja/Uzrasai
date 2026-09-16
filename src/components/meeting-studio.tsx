@@ -36,7 +36,6 @@ import {
   type SavedMeeting,
   formatClock,
   formatSpeakerCountLabel,
-  normalizeMeetingTitle,
 } from "@/lib/meeting";
 import { cn } from "@/lib/utils";
 
@@ -325,82 +324,8 @@ export function MeetingStudio() {
     ? "Pagal paiešką nieko nerasta."
     : "Dar nėra išsaugotų susitikimų.";
 
-  const recordCard = (
-    <Card className="ring-2 ring-primary/20">
-      <CardContent className="space-y-4 pt-5">
-        <div className="rounded-2xl bg-muted/70 px-3 py-3 ring-1 ring-border">
-          <Waveform stream={recorder.stream} active={recorder.isRecording} />
-          <div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">
-            <span className={cn("inline-flex items-center gap-2", recorder.isRecording && "text-red-600")}>
-              <span
-                className={cn(
-                  "size-2 rounded-full bg-muted-foreground/30",
-                  recorder.isRecording && "animate-pulse bg-red-500"
-                )}
-              />
-              {recorder.isRecording ? "Įrašoma" : processing ? "Apdorojama" : "Pasiruošta"}
-            </span>
-            <span className="font-mono tabular-nums text-base text-foreground">{formatClock(recorder.elapsedMs)}</span>
-          </div>
-        </div>
-
-        <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-center sm:gap-6">
-          <button
-            type="button"
-            onClick={() => void onToggleRecord()}
-            disabled={processing || recorder.state === "requesting" || recorder.state === "stopping"}
-            className={cn(
-              "flex size-20 shrink-0 items-center justify-center rounded-full text-white shadow-md transition disabled:opacity-50 sm:size-24",
-              recorder.isRecording ? "bg-red-500 hover:bg-red-400" : "bg-primary hover:bg-primary/90"
-            )}
-            aria-label={recorder.isRecording ? "Stabdyti įrašą" : "Pradėti įrašą"}
-          >
-            {recorder.state === "requesting" || recorder.state === "stopping" || processing ? (
-              <Loader2 className="size-8 animate-spin" />
-            ) : recorder.isRecording ? (
-              <Square className="size-8 fill-current" />
-            ) : (
-              <Mic className="size-9" />
-            )}
-          </button>
-          <div className="text-center sm:text-left">
-            <p className="text-base font-medium">{recorder.isRecording ? "Stop" : "Start"}</p>
-            <p className="text-xs text-muted-foreground">
-              {recorder.isRecording ? "Stabdyti ir gauti užrašus" : "Kalbėkite · iki 70 min."}
-            </p>
-          </div>
-          <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm hover:bg-muted/60 sm:ml-auto">
-            <FileAudio className="size-4" />
-            Įkelti failą
-            <input
-              type="file"
-              accept="audio/*,.webm,.mp3,.wav,.m4a,.ogg"
-              className="sr-only"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void onUpload(file);
-                event.target.value = "";
-              }}
-            />
-          </label>
-        </div>
-
-        {recorder.isRecording && captions.liveText ? (
-          <p className="rounded-xl bg-muted/80 p-3 text-sm leading-6 text-foreground">
-            <span className="mr-2 text-[11px] tracking-wide text-muted-foreground uppercase">Gyvos antraštės</span>
-            {captions.liveText}
-          </p>
-        ) : null}
-
-        {processing ? (
-          <div className="flex items-center gap-2 rounded-xl bg-muted/80 px-3 py-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            {PROCESS_STEPS[processStep]}
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
+  const recordStatus = recorder.isRecording ? "Įrašoma" : processing ? "Apdorojama" : "Pasiruošta";
+  const recordAction = recorder.isRecording ? "Stabdyti" : "Pradėti";
 
   return (
     <div className="flex min-h-dvh w-full">
@@ -419,37 +344,113 @@ export function MeetingStudio() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="px-4 pt-6 pb-4">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div className="max-w-2xl space-y-2">
-              <p className="text-xs font-medium tracking-[0.22em] text-speaker-one uppercase">Užrašai</p>
-              <h1 className="font-heading text-4xl leading-[1.05] text-balance sm:text-5xl">
-                Start. Stop. Gaukite užrašus.
-              </h1>
-              <p className="text-base text-muted-foreground">Spauskite Start, kalbėkite, tada Stop.</p>
+        <header className="border-b border-border/60 px-4 py-5">
+          <div className="mx-auto flex max-w-2xl items-start justify-between gap-4">
+            <div className="space-y-1">
+              <h1 className="font-heading text-3xl tracking-tight sm:text-4xl">Užrašai</h1>
+              <p className="text-sm text-muted-foreground">Įrašykite susitikimą ir gaukite aprašymą.</p>
             </div>
             {!status?.ready ? (
-              <Badge variant="outline" className="h-auto max-w-xs px-3 py-2 text-left text-xs leading-5 font-normal whitespace-normal">
+              <Badge variant="outline" className="h-auto max-w-[11rem] shrink-0 px-2.5 py-1.5 text-left text-[11px] leading-4 font-normal whitespace-normal">
                 {readyLabel}
               </Badge>
             ) : null}
           </div>
         </header>
 
-        <main className="flex-1 px-4 pb-6">
-          <div className="mx-auto max-w-6xl space-y-6">
-            {recordCard}
+        <main className="flex-1 px-4 py-6">
+          <div className="mx-auto max-w-2xl space-y-5">
+            <Card>
+              <CardContent className="space-y-5 pt-6">
+                <div className="rounded-2xl bg-muted/60 px-4 py-4">
+                  <Waveform stream={recorder.stream} active={recorder.isRecording} />
+                  <div className="mt-3 flex items-center justify-between text-sm">
+                    <span className={cn("inline-flex items-center gap-2 text-muted-foreground", recorder.isRecording && "text-red-600")}>
+                      <span
+                        className={cn(
+                          "size-2 rounded-full bg-muted-foreground/30",
+                          recorder.isRecording && "animate-pulse bg-red-500"
+                        )}
+                      />
+                      {recordStatus}
+                    </span>
+                    <span className="font-mono text-lg tabular-nums">{formatClock(recorder.elapsedMs)}</span>
+                  </div>
+                </div>
 
-            <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-              <div className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Users className="size-4" />
-                      Dalyvių skaičius
-                    </CardTitle>
-                  </CardHeader>
-                <CardContent>
+                <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-4">
+                    <button
+                      type="button"
+                      onClick={() => void onToggleRecord()}
+                      disabled={processing || recorder.state === "requesting" || recorder.state === "stopping"}
+                      className={cn(
+                        "flex size-[4.5rem] shrink-0 items-center justify-center rounded-full text-white shadow-lg transition disabled:opacity-50",
+                        recorder.isRecording ? "bg-red-500 hover:bg-red-400" : "bg-primary hover:bg-primary/90"
+                      )}
+                      aria-label={recorder.isRecording ? "Stabdyti įrašą" : "Pradėti įrašą"}
+                    >
+                      {recorder.state === "requesting" || recorder.state === "stopping" || processing ? (
+                        <Loader2 className="size-7 animate-spin" />
+                      ) : recorder.isRecording ? (
+                        <Square className="size-7 fill-current" />
+                      ) : (
+                        <Mic className="size-8" />
+                      )}
+                    </button>
+                    <div>
+                      <p className="text-lg font-medium">{recordAction}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {recorder.isRecording ? "Stabdyti ir gauti užrašus" : "Iki 70 min."}
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm text-muted-foreground transition hover:bg-muted/60 hover:text-foreground">
+                    <FileAudio className="size-4" />
+                    Įkelti garso failą
+                    <input
+                      type="file"
+                      accept="audio/*,.webm,.mp3,.wav,.m4a,.ogg"
+                      className="sr-only"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) void onUpload(file);
+                        event.target.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+
+                {recorder.isRecording && captions.liveText ? (
+                  <p className="rounded-xl border border-border/60 bg-muted/40 p-3 text-sm leading-6">
+                    <span className="mb-1 block text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                      Tiesioginė antraštė
+                    </span>
+                    {captions.liveText}
+                  </p>
+                ) : null}
+
+                {processing ? (
+                  <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" />
+                    {PROCESS_STEPS[processStep]}
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Prieš įrašą</CardTitle>
+                <CardDescription>Neprivaloma — padeda tiksliau aprašyti susitikimą.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Users className="size-4 text-muted-foreground" />
+                    Dalyvių skaičius
+                  </div>
                   <div className="flex flex-wrap items-center gap-3">
                     <div className="flex items-center gap-1">
                       <Button
@@ -499,21 +500,13 @@ export function MeetingStudio() {
                       {expectedCount === null ? "Nepateikta" : `${expectedCount} ${peopleWord(expectedCount)}`}
                     </p>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <FileText className="size-4" />
+                <div className="space-y-3 border-t border-border/60 pt-6">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <FileText className="size-4 text-muted-foreground" />
                     Aprašymo instrukcijos
-                  </CardTitle>
-                  <CardDescription>
-                    Parašykite, kokio aprašymo norite: trumpo ar detalaus, punktais ar pastraipomis, ką pridėti ar
-                    praleisti.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     {SUMMARY_PRESETS.map((preset) => (
                       <Button
@@ -528,91 +521,80 @@ export function MeetingStudio() {
                       </Button>
                     ))}
                   </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="summary-instructions">Jūsų nurodymai</Label>
-                    <Textarea
-                      id="summary-instructions"
-                      value={summaryInstructions}
-                      disabled={processing || recorder.isRecording}
-                      onChange={(event) => setSummaryInstructions(event.target.value)}
-                      placeholder="Pvz.: Trumpas aprašymas. Pridėkite biudžeto skaičius. Nepaminėkite asmeninių pokalbių. Rašyk punktais."
-                      className="min-h-28 leading-6"
-                    />
+                  <Textarea
+                    id="summary-instructions"
+                    value={summaryInstructions}
+                    disabled={processing || recorder.isRecording}
+                    onChange={(event) => setSummaryInstructions(event.target.value)}
+                    placeholder="Pvz.: Trumpas aprašymas punktais. Pridėkite biudžeto skaičius."
+                    className="min-h-24 leading-6"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            {displayError ? (
+              <Alert variant="destructive">
+                <AlertCircle />
+                <AlertTitle>Nepavyko</AlertTitle>
+                <AlertDescription>{displayError}</AlertDescription>
+              </Alert>
+            ) : null}
+
+            {result && saved ? (
+              <Card>
+                <CardHeader className="gap-4 border-b border-border/60 pb-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={saved.locked ? "secondary" : "outline"}>
+                      {saved.locked ? "Užrakinta" : "Redaguojama"}
+                    </Badge>
+                    <span className="text-sm text-muted-foreground">
+                      {formatClock(result.durationMs)} · {formatSpeakerCountLabel(result.speakerCount, saved.expectedCount)}
+                    </span>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {summaryInstructions.trim()
-                      ? "Instrukcijos bus pritaikytos generuojant aprašymą."
-                      : "Palikite tuščią — bus naudojamas numatytasis aprašymas."}
-                  </p>
+
+                  <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="email-to">Siųsti aprašymą el. paštu</Label>
+                      <Input
+                        id="email-to"
+                        type="email"
+                        placeholder="vardas@imone.lt"
+                        value={emailTo}
+                        onChange={(event) => {
+                          setEmailTo(event.target.value);
+                          setEmailState("idle");
+                        }}
+                      />
+                    </div>
+                    <Button className="self-end" onClick={() => void sendEmail()} disabled={emailState === "sending"}>
+                      {emailState === "sending" ? <Loader2 className="animate-spin" /> : <Mail />}
+                      {emailState === "sent" ? "Išsiųsta" : "Siųsti laišką"}
+                    </Button>
+                  </div>
+                  {emailError ? <p className="text-xs text-destructive">{emailError}</p> : null}
+                </CardHeader>
+                <CardContent className="pt-5">
+                  <ProtocolDocument
+                    saved={saved}
+                    onUpdate={persistMeeting}
+                    onLock={() => void lockMeeting()}
+                    onUnlock={() => void unlockMeeting()}
+                  />
                 </CardContent>
               </Card>
-              </div>
+            ) : null}
 
-              <div className="space-y-4">
-                {displayError ? (
-                  <Alert variant="destructive">
-                    <AlertCircle />
-                    <AlertTitle>Nepavyko</AlertTitle>
-                    <AlertDescription>{displayError}</AlertDescription>
-                  </Alert>
-                ) : null}
-
-                {result && saved ? (
-                <Card>
-                  <CardHeader className="gap-4">
-                    <div>
-                      <CardTitle className="font-heading text-2xl text-balance">
-                        {normalizeMeetingTitle(result.summary.title)}
-                      </CardTitle>
-                      <CardDescription>
-                        {formatClock(result.durationMs)} · {formatSpeakerCountLabel(result.speakerCount, saved.expectedCount)}
-                      </CardDescription>
-                    </div>
-
-                    <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="email-to">Siųsti aprašymą el. paštu</Label>
-                        <Input
-                          id="email-to"
-                          type="email"
-                          placeholder="vardas@imone.lt"
-                          value={emailTo}
-                          onChange={(event) => {
-                            setEmailTo(event.target.value);
-                            setEmailState("idle");
-                          }}
-                        />
-                      </div>
-                      <Button className="self-end" onClick={() => void sendEmail()} disabled={emailState === "sending"}>
-                        {emailState === "sending" ? <Loader2 className="animate-spin" /> : <Mail />}
-                        {emailState === "sent" ? "Išsiųsta" : "Siųsti laišką"}
-                      </Button>
-                    </div>
-                    {emailError ? <p className="text-xs text-destructive">{emailError}</p> : null}
-                  </CardHeader>
-                  <CardContent>
-                    <ProtocolDocument
-                      saved={saved}
-                      onUpdate={persistMeeting}
-                      onLock={() => void lockMeeting()}
-                      onUnlock={() => void unlockMeeting()}
-                    />
-                  </CardContent>
-                </Card>
-              ) : null}
-
-              {!status?.ready ? (
-                <details className="rounded-xl border bg-card">
-                  <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium marker:content-none [&::-webkit-details-marker]:hidden">
-                    Savininko nustatymas (vieną kartą)
-                  </summary>
-                  <div className="border-t px-1 pb-1">
-                    <SetupGuide status={status} />
-                  </div>
-                </details>
-              ) : null}
-              </div>
-            </div>
+            {!status?.ready ? (
+              <details className="rounded-xl border bg-card">
+                <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium marker:content-none [&::-webkit-details-marker]:hidden">
+                  Savininko nustatymas (vieną kartą)
+                </summary>
+                <div className="border-t px-1 pb-1">
+                  <SetupGuide status={status} />
+                </div>
+              </details>
+            ) : null}
           </div>
         </main>
       </div>

@@ -50,13 +50,15 @@ async function prepareGeminiAudio(
   return toMp3(buffer, mimeType);
 }
 
-const ANGLICISM_HINT = `Pokalbis daugiausia lietuvių kalba, bet dažnai pasitaiko pavieniai angliški žodžiai ir anglicizmai.
-Juos transkribuok TEISINGAI angliškai (lotyniškais rašmenimis) — neverčiant į lietuviškus atitikmenis.
-Pavyzdžiai: tomorrow (ne „tomoro“ / „tomorrow“ klaidingai), today, yesterday, weekend, meeting, call, deadline, feedback, okay, ok, sorry, please, thanks, yes, no, update, email, team, target, budget, launch, online, offline, status, marketing, design, product, sprint, backlog, deadline, follow-up, check-in.
-Aprašyme angliškus terminus palik kaip transkripte, neversk be reikalo.`;
+const ANGLICISM_HINT = `Pokalbis daugiausia lietuvių kalba, bet dažnai pasitaiko pavieniai angliški žodžiai.
+Juos BŪTINA rašyti teisingai angliškai (lotyniškais rašmenimis), neverčiant:
+tomorrow, today, yesterday, weekend, meeting, call, deadline, feedback, okay, ok, sorry, please, thanks, yes, no,
+update, email, team, target, budget, launch, online, offline, status, marketing, design, product, sprint, backlog,
+follow-up, check-in, slide, deck, report, issue, bug, fix, test, demo, share, link, post, chat.
+Klaidingi pavyzdžiai: „tomoro“, „mitingas“, „imeilas“, „tudėja“ — turi būti tomorrow, meeting, email, today.`;
 
 const WHISPER_ANGLICISM_PROMPT =
-  "Lietuvių kalba su angliškais žodžiais: tomorrow, today, yesterday, weekend, meeting, call, deadline, feedback, okay, sorry, please, thanks, update, email, team, target, budget, launch, marketing, status, online, offline.";
+  "Mixed Lithuanian and English speech. English words spelled correctly: tomorrow, today, yesterday, weekend, meeting, call, deadline, feedback, okay, sorry, please, thanks, update, email, team, target, budget, launch, marketing, status, online, offline, ok, yes, no.";
 
 const SUMMARY_PROMPT = `Tu esi susitikimų sekretorius. Aprašymą rašai lietuvių kalba.
 Gavai pažodžiui transkribuotą pokalbį su kalbėtojų žymėmis. Pokalbyje gali būti iki ${MAX_SPEAKERS} žmonių.
@@ -347,27 +349,60 @@ type GeminiRestResponse = {
   }>;
 };
 
-async function polishAnglicismsInSegments(ai: GoogleGenAI, segments: MeetingSegment[]): Promise<MeetingSegment[]> {
+async function applySegmentRepairs(
+  segments: MeetingSegment[],
+  repairs: Array<{ index?: number; text?: string }> | undefined
+): Promise<MeetingSegment[]> {
+  const next = segments.map((segment) => ({ ...segment }));
+  for (const repair of repairs ?? []) {
+    if (typeof repair.index !== "number" || !repair.text?.trim() || !next[repair.index]) continue;
+    next[repair.index] = { ...next[repair.index], text: repair.text.trim() };
+  }
+  return next;
+}
+
+async function repairSegmentsWithAudio(
+  ai: GoogleGenAI,
+  inlineData: { mimeType: string; data: string },
+  segments: MeetingSegment[]
+): Promise<MeetingSegment[]> {
+  if (segments.length === 0) return segments;
+
+  try {
+    const text = await geminiJsonText(ai, {
+      text: `Klausyk garso ir pataisyk transkripciją. Pokalbis lietuviškai su angliškais žodžiais.
+${ANGLICISM_HINT}
+
+Grąžink JSON {"segments":[{"index":0,"text":"..."}]} — kiekvieno segmento TEISINGAS tekstas pagal garsą.
+index atitinka draft numerius.
+
+DRAFT:
+${segments.map((segment, index) => `[${index}] ${segment.text}`).join("\n")}`,
+      audio: { mimeType: inlineData.mimeType, data: inlineData.data },
+    });
+    const parsed = JSON.parse(text) as { segments?: Array<{ index?: number; text?: string }> };
+    return applySegmentRepairs(segments, parsed.segments);
+  } catch {
+    return segments;
+  }
+}
+
+async function repairMixedLanguageSegments(ai: GoogleGenAI, segments: MeetingSegment[]): Promise<MeetingSegment[]> {
   if (segments.length === 0) return segments;
 
   try {
     const text = await geminiJsonText(
       ai,
-      `Patikrink transkripciją. Pokalbis lietuviškai, bet su angliškais žodžiais.
+      `Pataisyk transkripciją. Pokalbis lietuviškai su angliškais žodžiais.
 ${ANGLICISM_HINT}
 
-Grąžink JSON {"fixes":[{"index":0,"text":"..."}]} tik segmentams, kur angliškas žodis neteisingai užrašytas ar lietuvintas. Jei viskas gerai — {"fixes":[]}.
+Grąžink JSON {"segments":[{"index":0,"text":"..."}]} su VISŲ segmentų pataisytu tekstu.
 
 TRANSKRIPTAS:
 ${segments.map((segment, index) => `[${index}] ${segment.text}`).join("\n")}`
     );
-    const parsed = JSON.parse(text) as { fixes?: Array<{ index?: number; text?: string }> };
-    const next = segments.map((segment) => ({ ...segment }));
-    for (const fix of parsed.fixes ?? []) {
-      if (typeof fix.index !== "number" || !fix.text?.trim() || !next[fix.index]) continue;
-      next[fix.index] = { ...next[fix.index], text: fix.text.trim() };
-    }
-    return next;
+    const parsed = JSON.parse(text) as { segments?: Array<{ index?: number; text?: string }> };
+    return applySegmentRepairs(segments, parsed.segments);
   } catch {
     return segments;
   }
@@ -386,6 +421,7 @@ async function transcribeWithGeminiRest(
         contents: [{ parts: [{ inlineData }] }],
         generationConfig: {
           audioTranscriptionConfig: {
+            languageCodes: ["lt-LT", "en-US"],
             diarization: true,
             wordTimestamp: true,
           },
@@ -591,7 +627,7 @@ Grąžink tik JSON:
     throw new Error("Gemini negrąžino transkripcijos.");
   }
 
-  const polished = await polishAnglicismsInSegments(ai, segments);
+  const polished = await repairMixedLanguageSegments(ai, segments);
 
   return {
     segments: polished,
@@ -633,7 +669,14 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
 
   if (transcribedChunks.length > 0) {
     let segments = await unifyChunkSpeakers(ai, transcribedChunks);
-    segments = await polishAnglicismsInSegments(ai, segments);
+    const repairAudio = {
+      mimeType: prepared.mimeType,
+      data: prepared.buffer.toString("base64"),
+    };
+    if (input.durationMs <= 25 * 60 * 1000) {
+      segments = await repairSegmentsWithAudio(ai, repairAudio, segments);
+    }
+    segments = await repairMixedLanguageSegments(ai, segments);
     const speakerNames = await inferSpeakerNames(segments);
     let summary: MeetingSummary;
     try {

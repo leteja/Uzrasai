@@ -14,8 +14,6 @@ import {
   type SpeakerId,
   applySpeakerNamesToSummary,
   defaultSpeakerLabel,
-  formatSpeakerCountLabel,
-  formatSpeakerLine,
   formatTimestamp,
   hasCustomSpeakerName,
   listSpeakers,
@@ -139,20 +137,13 @@ export function ProtocolDocument({
   return (
     <section className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1 space-y-1">
-          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            {locked ? "Užrakinta" : "Redagavimo režimas"}
-          </p>
-          <h2 className="text-xl font-medium tracking-tight text-balance">
+        <div className="min-w-0 flex-1 space-y-2">
+          <h2 className="font-heading text-2xl leading-snug text-balance">
             {normalizeMeetingTitle(result.summary.title)}
           </h2>
-          <p className="text-xs text-muted-foreground">
-            {formatSpeakerCountLabel(result.speakerCount, saved.expectedCount)}
-            {locked ? " · teksto keisti negalima" : " · tekstą galima keisti ranka"}
-          </p>
           {saved.summaryInstructions ? (
-            <p className="rounded-lg bg-muted/60 px-3 py-2 text-xs leading-5 text-muted-foreground">
-              <span className="font-medium text-foreground">Aprašymo instrukcijos: </span>
+            <p className="rounded-lg bg-muted/50 px-3 py-2 text-xs leading-5 text-muted-foreground">
+              <span className="font-medium text-foreground">Instrukcijos: </span>
               {saved.summaryInstructions}
             </p>
           ) : null}
@@ -189,12 +180,9 @@ export function ProtocolDocument({
       ) : null}
 
       {!locked ? (
-        <Alert>
-          <AlertTriangle />
-          <AlertDescription>
-            Redaguojant tekstą ranka, rezultatas bus pažymėtas kaip pakeistas.
-          </AlertDescription>
-        </Alert>
+        <p className="text-xs text-muted-foreground">
+          Redaguojant tekstą ranka, rezultatas bus pažymėtas kaip pakeistas.
+        </p>
       ) : null}
 
       <div className="space-y-2">
