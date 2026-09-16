@@ -108,7 +108,14 @@ async function saveMeetingToSupabase(meeting: SavedMeeting): Promise<SavedMeetin
   if (!supabase) throw new Error("Supabase nesukonfigūruotas.");
 
   const { error } = await supabase.from("meetings").upsert(toRow(meeting));
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (error.message.includes("row-level security")) {
+      throw new Error(
+        "Supabase RLS klaida: Vercel kintamajame SUPABASE_SERVICE_ROLE_KEY turi būti service_role raktas (ne anon). Supabase → Settings → API → service_role → Reveal."
+      );
+    }
+    throw new Error(error.message);
+  }
   return meeting;
 }
 

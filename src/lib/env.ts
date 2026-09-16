@@ -1,4 +1,5 @@
 import { getStorageMode } from "@/lib/store";
+import { supabaseKeyRole } from "@/lib/supabase";
 
 export function getGeminiKey(): string | undefined {
   return process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -40,6 +41,7 @@ export function getProviderStatus() {
       groqKeyLength: groqKey.length,
       supabaseUrlSet: Boolean(supabaseUrl),
       supabaseServiceRoleLength: supabaseServiceRole.length,
+      supabaseKeyRole: supabaseKeyRole(),
       vercelEnv: process.env.VERCEL_ENV ?? "local",
     },
   };

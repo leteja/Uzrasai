@@ -64,6 +64,7 @@ export type ProviderStatus = {
     groqKeyLength: number;
     supabaseUrlSet: boolean;
     supabaseServiceRoleLength: number;
+    supabaseKeyRole: "service_role" | "anon" | "missing" | "unknown";
     vercelEnv: string;
   };
 };
