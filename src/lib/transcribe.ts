@@ -50,8 +50,13 @@ async function prepareGeminiAudio(
   return toMp3(buffer, mimeType);
 }
 
-const SUMMARY_PROMPT = `Tu esi susitikimų sekretorius. Dirbi tik lietuvių kalba.
+const ANGLICISM_HINT = `Pokalbis daugiausia lietuvių kalba, bet pasitaiko angliškų žodžių (anglicizmų): meeting, call, deadline, feedback, target, budget, team, launch, marketing, email, update, status, online, offline, ok, sorry.
+Transkribuok angliškus žodžius teisingai angliškai — neverčiant į lietuviškus atitikmenis (pvz. ne „mitingas“, o „meeting“).
+Aprašyme angliškus terminus palik kaip transkripte, neversk be reikalo.`;
+
+const SUMMARY_PROMPT = `Tu esi susitikimų sekretorius. Aprašymą rašai lietuvių kalba.
 Gavai pažodžiui transkribuotą pokalbį su kalbėtojų žymėmis. Pokalbyje gali būti iki ${MAX_SPEAKERS} žmonių.
+${ANGLICISM_HINT}
 
 SVARBU — tai SUTRUMPINTAS aprašymas, ne antras transkriptas:
 - Tikslas: aprašymas turi būti ~20–35% transkripto žodžių kiekio. Jei per ilgas — per daug kartoji.
@@ -351,7 +356,7 @@ async function transcribeWithGeminiRest(
         contents: [{ parts: [{ inlineData }] }],
         generationConfig: {
           audioTranscriptionConfig: {
-            languageCodes: ["lt-LT"],
+            languageCodes: ["lt-LT", "en-US"],
             diarization: true,
             wordTimestamp: true,
           },
@@ -520,7 +525,8 @@ async function processWithGeminiFlash(
     : "";
 
   const text = await geminiJsonText(ai, {
-    text: `Transkribuok šį lietuvišką susitikimo įrašą (gali trukti iki valandos, keli žmonės kambaryje).
+    text: `Transkribuok šį susitikimo įrašą (daugiausia lietuviškai, gali trukti iki valandos, keli žmonės kambaryje).
+${ANGLICISM_HINT}
 Atskirk balsus SPEAKER_1, SPEAKER_2, SPEAKER_3... iki SPEAKER_${MAX_SPEAKERS} pagal tai, kas kalba — ne pagal sakinių eilę, o pagal balsą.
 Jei girdėti tik vienas balsas, visus segmentus žymėk SPEAKER_1.
 Tada parašyk viso pokalbio SUTRUMPINTĄ aprašymą lietuviškai: perfrazuok, ne cituok. Aprašymas turi būti ~20–35% transkripto ilgio.
@@ -644,6 +650,8 @@ async function processWithGroq(input: AudioInput): Promise<MeetingResult> {
     file,
     model: "whisper-large-v3",
     language: "lt",
+    prompt:
+      "Lietuvių kalba su anglicizmais: meeting, deadline, feedback, budget, team, target, launch, marketing, email, update, status.",
     response_format: "verbose_json",
     temperature: 0,
   });
@@ -675,7 +683,8 @@ async function processWithGroq(input: AudioInput): Promise<MeetingResult> {
     messages: [
       {
         role: "system",
-        content: `Tu skiri kelių žmonių lietuvišką pokalbį ir rašai susitikimo aprašymą.
+        content: `Tu skiri kelių žmonių pokalbį (daugiausia lietuviškai) ir rašai susitikimo aprašymą.
+${ANGLICISM_HINT}
 Whisper transkripcija NETURI balsų žymių. Priskirk SPEAKER_1..SPEAKER_${MAX_SPEAKERS} tik tiems, kurie kalba.
 ${SUMMARY_PROMPT}
 ${summaryInstructionsHint(input.summaryInstructions)}${attendeesHint(input.expectedCount)}
