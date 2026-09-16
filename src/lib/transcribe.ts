@@ -550,8 +550,13 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
   if (!apiKey) throw new Error("Trūksta GEMINI_API_KEY.");
 
   const ai = new GoogleGenAI({ apiKey });
-  const mp3 = await toMp3(input.buffer, input.mimeType);
-  const chunks = await splitAudioChunks(mp3.buffer, mp3.mimeType, input.durationMs);
+  const normalizedMime = asGeminiMime(input.mimeType);
+  const shortRecording = input.durationMs <= CHUNK_SECONDS * 1000 + 30_000;
+  const audio =
+    shortRecording && !input.mimeType.includes("mpeg")
+      ? { buffer: input.buffer, mimeType: normalizedMime }
+      : await toMp3(input.buffer, input.mimeType);
+  const chunks = await splitAudioChunks(audio.buffer, audio.mimeType, input.durationMs);
 
   const transcribedChunks: MeetingSegment[][] = [];
   for (const chunk of chunks) {
@@ -601,8 +606,8 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
 
   console.warn("Gemini Transcribe negrąžino teksto, bandoma Flash su garsu.");
   return processWithGeminiFlash(ai, input, {
-    mimeType: mp3.mimeType,
-    data: mp3.buffer.toString("base64"),
+      mimeType: audio.mimeType,
+      data: audio.buffer.toString("base64"),
   });
 }
 
