@@ -419,30 +419,36 @@ export function MeetingStudio() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="border-b px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="font-heading text-lg leading-none tracking-tight">Užrašai</p>
-              <p className="text-[11px] text-muted-foreground">Start · Stop · Užrašai</p>
+        <header className="px-4 pt-6 pb-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="max-w-2xl space-y-2">
+              <p className="text-xs font-medium tracking-[0.22em] text-speaker-one uppercase">Užrašai</p>
+              <h1 className="font-heading text-4xl leading-[1.05] text-balance sm:text-5xl">
+                Start. Stop. Gaukite užrašus.
+              </h1>
+              <p className="text-base text-muted-foreground">Spauskite Start, kalbėkite, tada Stop.</p>
             </div>
             {!status?.ready ? (
-              <Badge variant="outline" className="max-w-[12rem] text-left text-[11px] leading-4 font-normal whitespace-normal">
+              <Badge variant="outline" className="h-auto max-w-xs px-3 py-2 text-left text-xs leading-5 font-normal whitespace-normal">
                 {readyLabel}
               </Badge>
             ) : null}
           </div>
         </header>
 
-        <main className="flex-1 px-4 py-4">
-          <div className="mx-auto grid max-w-6xl items-start gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-            <div className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Users className="size-4" />
-                    Dalyvių skaičius
-                  </CardTitle>
-                </CardHeader>
+        <main className="flex-1 px-4 pb-6">
+          <div className="mx-auto max-w-6xl space-y-6">
+            {recordCard}
+
+            <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+              <div className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Users className="size-4" />
+                      Dalyvių skaičius
+                    </CardTitle>
+                  </CardHeader>
                 <CardContent>
                   <div className="flex flex-wrap items-center gap-3">
                     <div className="flex items-center gap-1">
@@ -540,27 +546,18 @@ export function MeetingStudio() {
                   </p>
                 </CardContent>
               </Card>
-            </div>
+              </div>
 
-            <div className="space-y-4">
-              {displayError ? (
-                <Alert variant="destructive">
-                  <AlertCircle />
-                  <AlertTitle>Nepavyko</AlertTitle>
-                  <AlertDescription>{displayError}</AlertDescription>
-                </Alert>
-              ) : null}
+              <div className="space-y-4">
+                {displayError ? (
+                  <Alert variant="destructive">
+                    <AlertCircle />
+                    <AlertTitle>Nepavyko</AlertTitle>
+                    <AlertDescription>{displayError}</AlertDescription>
+                  </Alert>
+                ) : null}
 
-              {!result && !processing ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Dar nėra užrašų</CardTitle>
-                    <CardDescription>Spauskite Start ir pradėkite kalbėti.</CardDescription>
-                  </CardHeader>
-                </Card>
-              ) : null}
-
-              {result && saved ? (
+                {result && saved ? (
                 <Card>
                   <CardHeader className="gap-4">
                     <div>
@@ -614,6 +611,7 @@ export function MeetingStudio() {
                   </div>
                 </details>
               ) : null}
+              </div>
             </div>
           </div>
         </main>
