@@ -229,6 +229,12 @@ export function uniqueSpeakerIds(segments: MeetingSegment[]): SpeakerId[] {
   return ids.length > 0 ? ids : listSpeakers(1);
 }
 
+export function expectedSpeakerIds(segments: MeetingSegment[], expectedCount = 0): SpeakerId[] {
+  const present = uniqueSpeakerIds(segments).length;
+  const count = Math.min(MAX_SPEAKERS, Math.max(present, expectedCount, 1));
+  return listSpeakers(count);
+}
+
 export function withSpeakerCount(result: MeetingResult): MeetingResult {
   return { ...result, speakerCount: uniqueSpeakerIds(result.segments).length };
 }

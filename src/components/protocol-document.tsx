@@ -16,7 +16,7 @@ import {
   defaultSpeakerLabel,
   formatTimestamp,
   hasCustomSpeakerName,
-  listSpeakers,
+  expectedSpeakerIds,
   manualEditNotice,
   normalizeMeetingTitle,
   speakerName,
@@ -24,13 +24,11 @@ import {
   toMarkdown,
   toSummaryCopyText,
   toTranscriptCopyText,
-  uniqueSpeakerIds,
   withSpeakerCount,
 } from "@/lib/meeting";
 
 function speakerChoices(saved: SavedMeeting): SpeakerId[] {
-  const present = uniqueSpeakerIds(saved.result.segments).length;
-  return listSpeakers(Math.min(MAX_SPEAKERS, Math.max(present, 2)));
+  return expectedSpeakerIds(saved.result.segments, saved.expectedCount);
 }
 
 export function ProtocolDocument({
@@ -48,7 +46,7 @@ export function ProtocolDocument({
   const [copiedTranscript, setCopiedTranscript] = useState(false);
   const locked = saved.locked;
   const names = saved.speakerNames;
-  const speakers = uniqueSpeakerIds(saved.result.segments);
+  const speakers = expectedSpeakerIds(saved.result.segments, saved.expectedCount);
   const choices = speakerChoices(saved);
   const result = saved.result;
   const editNotice = manualEditNotice(saved.manuallyEdited, saved.editedAt);

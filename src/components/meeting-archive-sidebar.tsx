@@ -1,7 +1,6 @@
 "use client";
 
-import { ChevronRight, PanelRightOpen, Search, Trash2 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { ChevronRight, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { type MeetingListItem, formatClock, normalizeMeetingTitle } from "@/lib/meeting";
@@ -95,26 +94,16 @@ export function MeetingArchiveSidebar({
 }: MeetingArchiveSidebarProps) {
   if (!open) {
     return (
-      <aside className={cn("flex w-12 shrink-0 flex-col items-center border-l bg-background py-4", className)}>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => onOpenChange(true)}
-          aria-label="Rodyti praeitus susitikimus"
-          title="Praeiti susitikimai"
-        >
-          <PanelRightOpen />
-        </Button>
-        {totalCount > 0 ? (
-          <Badge variant="secondary" className="mt-3 px-1.5 text-[10px] tabular-nums">
-            {totalCount}
-          </Badge>
-        ) : null}
-        <span className="mt-6 text-[10px] tracking-wide text-muted-foreground [writing-mode:vertical-rl]">
-          Praeiti
-        </span>
-      </aside>
+      <button
+        type="button"
+        onClick={() => onOpenChange(true)}
+        aria-label="Rodyti praeitus susitikimus"
+        title="Praeiti susitikimai"
+        className={cn(
+          "sticky top-0 flex h-dvh w-8 shrink-0 cursor-pointer border-l border-border/80 bg-muted/40 transition hover:bg-muted/70",
+          className
+        )}
+      />
     );
   }
 

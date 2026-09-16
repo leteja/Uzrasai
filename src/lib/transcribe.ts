@@ -266,14 +266,16 @@ function attendeesHint(expectedCount?: number): string {
   const nameRules = `Vardą ar pravardę naudok TIK jei kalbėtojas pats prisistato transkripte (pvz. „aš Alanas“, „čia direktorius“).
 Tikras vardas svarbesnis už pareigas ar pravardę (direktorius, bosas).
 Jei neprisistatė — naudok SPEAKER_1, SPEAKER_2…
-Balsus žymėk SPEAKER_1, SPEAKER_2, SPEAKER_3 ir t. t.`;
+Balsus žymėk SPEAKER_1, SPEAKER_2, SPEAKER_3 ir t. t. pagal SKIRTINGUS balsus.`;
 
   if (!expectedCount || expectedCount <= 0) {
     return `\n${nameRules}`;
   }
 
   const inRoom = Math.min(20, expectedCount);
-  return `\nKambaryje ${inRoom} dalyvių.
+  const speakerList = Array.from({ length: Math.min(inRoom, MAX_SPEAKERS) }, (_, i) => `SPEAKER_${i + 1}`).join(", ");
+  return `\nKambaryje ${inRoom} dalyvių, kurie kalba. Transkripcijoje BŪTINA naudoti ${speakerList} ir atskirti pagal balsą.
+Jei girdimi ${inRoom} skirtingi balsai — NEGALI visų segmentų būti SPEAKER_1.
 ${nameRules}`;
 }
 
@@ -361,10 +363,54 @@ async function applySegmentRepairs(
   return next;
 }
 
+async function applySpeakerRepairs(
+  segments: MeetingSegment[],
+  repairs: Array<{ index?: number; speaker?: string }> | undefined
+): Promise<MeetingSegment[]> {
+  const next = segments.map((segment) => ({ ...segment }));
+  for (const repair of repairs ?? []) {
+    if (typeof repair.index !== "number" || !next[repair.index]) continue;
+    next[repair.index] = {
+      ...next[repair.index],
+      speaker: normalizeSpeaker(repair.speaker, repair.index),
+    };
+  }
+  return next;
+}
+
+async function rebalanceSpeakers(
+  ai: GoogleGenAI,
+  segments: MeetingSegment[],
+  expectedCount: number,
+  inlineData?: { mimeType: string; data: string }
+): Promise<MeetingSegment[]> {
+  const target = Math.min(Math.max(expectedCount, 0), MAX_SPEAKERS);
+  if (target <= 1 || segments.length === 0) return segments;
+  if (uniqueSpeakers(segments) >= target) return segments;
+
+  const prompt = `Pokalbyje kalba ${target} skirtingi žmonės, bet transkripcijoje dabar mažiau skirtingų kalbėtojų.
+Perpriskirk kiekvieną segmentą pagal balsų pasikeitimus ir dialogą.
+Grąžink JSON {"segments":[{"index":0,"speaker":"SPEAKER_1"}]} su VISŲ segmentų kalbėtojais (SPEAKER_1..SPEAKER_${target}).
+
+SEGMENTAI:
+${segments.map((segment, index) => `[${index}] ${segment.speaker}: ${segment.text}`).join("\n")}`;
+
+  try {
+    const text = inlineData
+      ? await geminiJsonText(ai, { text: prompt, audio: inlineData })
+      : await geminiJsonText(ai, prompt);
+    const parsed = JSON.parse(text) as { segments?: Array<{ index?: number; speaker?: string }> };
+    return applySpeakerRepairs(segments, parsed.segments);
+  } catch {
+    return segments;
+  }
+}
+
 async function repairSegmentsWithAudio(
   ai: GoogleGenAI,
   inlineData: { mimeType: string; data: string },
-  segments: MeetingSegment[]
+  segments: MeetingSegment[],
+  expectedCount?: number
 ): Promise<MeetingSegment[]> {
   if (segments.length === 0) return segments;
 
@@ -372,16 +418,23 @@ async function repairSegmentsWithAudio(
     const text = await geminiJsonText(ai, {
       text: `Klausyk garso ir pataisyk transkripciją. Pokalbis lietuviškai su angliškais žodžiais.
 ${ANGLICISM_HINT}
+${attendeesHint(expectedCount)}
 
-Grąžink JSON {"segments":[{"index":0,"text":"..."}]} — kiekvieno segmento TEISINGAS tekstas pagal garsą.
+Grąžink JSON {"segments":[{"index":0,"text":"...","speaker":"SPEAKER_1"}]} — kiekvieno segmento TEISINGAS tekstas ir kalbėtojas pagal garsą.
 index atitinka draft numerius.
 
 DRAFT:
-${segments.map((segment, index) => `[${index}] ${segment.text}`).join("\n")}`,
+${segments.map((segment, index) => `[${index}] ${segment.speaker}: ${segment.text}`).join("\n")}`,
       audio: { mimeType: inlineData.mimeType, data: inlineData.data },
     });
-    const parsed = JSON.parse(text) as { segments?: Array<{ index?: number; text?: string }> };
-    return applySegmentRepairs(segments, parsed.segments);
+    const parsed = JSON.parse(text) as {
+      segments?: Array<{ index?: number; text?: string; speaker?: string }>;
+    };
+    let next = await applySegmentRepairs(segments, parsed.segments);
+    if (parsed.segments?.some((item) => item.speaker)) {
+      next = await applySpeakerRepairs(next, parsed.segments);
+    }
+    return next;
   } catch {
     return segments;
   }
@@ -628,9 +681,13 @@ Grąžink tik JSON:
   }
 
   const polished = await repairMixedLanguageSegments(ai, segments);
+  let finalSegments = polished;
+  if (input.expectedCount && input.expectedCount > 1) {
+    finalSegments = await rebalanceSpeakers(ai, polished, input.expectedCount, inlineData);
+  }
 
   return {
-    segments: polished,
+    segments: finalSegments,
     summary: {
       title: normalizeMeetingTitle(parsed.summary?.title?.trim() || "Susitikimo užrašai"),
       narrative: parsed.summary?.narrative?.trim() || "",
@@ -674,9 +731,17 @@ async function processWithGemini(input: AudioInput): Promise<MeetingResult> {
       data: prepared.buffer.toString("base64"),
     };
     if (input.durationMs <= 25 * 60 * 1000) {
-      segments = await repairSegmentsWithAudio(ai, repairAudio, segments);
+      segments = await repairSegmentsWithAudio(ai, repairAudio, segments, input.expectedCount);
     }
     segments = await repairMixedLanguageSegments(ai, segments);
+    if (input.expectedCount && input.expectedCount > 1) {
+      segments = await rebalanceSpeakers(
+        ai,
+        segments,
+        input.expectedCount,
+        input.durationMs <= 25 * 60 * 1000 ? repairAudio : undefined
+      );
+    }
     const speakerNames = await inferSpeakerNames(segments);
     let summary: MeetingSummary;
     try {
@@ -758,7 +823,7 @@ async function processWithGroq(input: AudioInput): Promise<MeetingResult> {
         role: "system",
         content: `Tu skiri kelių žmonių pokalbį (daugiausia lietuviškai) ir rašai susitikimo aprašymą.
 ${ANGLICISM_HINT}
-Whisper transkripcija NETURI balsų žymių. Priskirk SPEAKER_1..SPEAKER_${MAX_SPEAKERS} tik tiems, kurie kalba.
+Whisper transkripcija NETURI balsų žymių. Priskirk SPEAKER_1..SPEAKER_${MAX_SPEAKERS} kiekvienai atkarpai pagal tai, kas kalba — keisk kalbėtoją, kai keičiasi balsas arba dialogo pusė.
 ${SUMMARY_PROMPT}
 ${summaryInstructionsHint(input.summaryInstructions)}${attendeesHint(input.expectedCount)}
 
@@ -791,7 +856,7 @@ Papildomai JSON turi turėti segments masyvą su visomis Whisper atkarpomis:
     speakerMap = {};
   }
 
-  const segments = mapUnknownSpeakers(
+  let segments = mapUnknownSpeakers(
     whisperSegments.length > 0
       ? whisperSegments.map((segment, index) => ({
           speaker: speakerMap[index] ?? speakerId((index % MAX_SPEAKERS) + 1),
@@ -808,6 +873,12 @@ Papildomai JSON turi turėti segments masyvą su visomis Whisper atkarpomis:
           },
         ]
   );
+
+  const geminiKey = getGeminiKey();
+  if (geminiKey && input.expectedCount && input.expectedCount > 1 && uniqueSpeakers(segments) < input.expectedCount) {
+    const ai = new GoogleGenAI({ apiKey: geminiKey });
+    segments = await rebalanceSpeakers(ai, segments, input.expectedCount);
+  }
 
   return {
     segments,

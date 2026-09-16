@@ -353,13 +353,13 @@ export function MeetingStudio() {
     <div className="flex min-h-dvh w-full">
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="px-6 pt-8 pb-2">
-          <div className="flex max-w-2xl items-start justify-between gap-4">
+          <div className="mx-auto flex w-full max-w-2xl flex-col items-center gap-3 text-center sm:flex-row sm:items-start sm:justify-between sm:text-left">
             <div className="space-y-2">
               <h1 className="font-heading text-5xl leading-none tracking-tight sm:text-6xl">Užrašai</h1>
               <p className="text-sm text-muted-foreground">Įrašykite susitikimą ir gaukite aprašymą.</p>
             </div>
             {!status?.ready ? (
-              <Badge variant="outline" className="h-auto max-w-[11rem] shrink-0 px-2.5 py-1.5 text-left text-[11px] leading-4 font-normal whitespace-normal">
+              <Badge variant="outline" className="h-auto max-w-[11rem] shrink-0 px-2.5 py-1.5 text-left text-[11px] leading-4 font-normal whitespace-normal sm:text-left">
                 {readyLabel}
               </Badge>
             ) : null}
@@ -367,7 +367,7 @@ export function MeetingStudio() {
         </header>
 
         <main className="flex-1 px-6 pb-8">
-          <div className="max-w-2xl space-y-5">
+          <div className="mx-auto w-full max-w-2xl space-y-5">
             {step === "setup" ? (
               <Card>
                 <CardHeader className="pb-3">
